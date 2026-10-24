@@ -1,0 +1,86 @@
+# Swift Package Manager and compiler output
+.build/
+.swiftpm/
+/Packages/
+
+# Xcode build products, test results, archives and user state
+DerivedData/
+DerivedData*/
+build/
+Build/
+*.xcarchive/
+*.xcresult/
+*.dSYM/
+*.dSYM.zip
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+*.hmap
+*.ipa
+*.app/
+*.o
+*.a
+*.dylib
+*.so
+*.pcm
+*.swiftmodule
+*.swiftdoc
+*.swiftsourceinfo
+*.dia
+
+# macOS and editor-local files
+.DS_Store
+.AppleDouble/
+.LSOverride
+._*
+.Spotlight-V100/
+.Trashes/
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local app data, caches, logs and temporary files
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.db
+*.db-*
+*.log
+*.tmp
+*.temp
+.cache/
+cache/
+caches/
+/tmp/
+/temp/
+/coverage/
+
+# Credentials, environment overrides and signing material
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+*.mobileprovision
+*.provisionprofile
+*.cer
+*.p8
+.netrc
+.aws/
+.ssh/
+credentials.json
+secrets.json
+
+# Local coding-agent configuration
+.agents/
+.codex/
+AGENTS.local.md
+
+# Keep shared Xcode projects, workspaces, schemes and Package.resolved.
