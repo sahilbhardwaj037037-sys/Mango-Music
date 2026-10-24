@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct LocalMusicApp: App {
+struct MangoMusicApp: App {
     @State private var library = MusicLibrary()
 
     var body: some Scene {

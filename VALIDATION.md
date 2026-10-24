@@ -18,7 +18,7 @@ Run from the repository root:
 ```sh
 ./Scripts/check.sh
 
-xcodebuild -project LocalMusic.xcodeproj -scheme LocalMusic \
+xcodebuild -project MangoMusic.xcodeproj -scheme MangoMusic \
   -destination 'platform=macOS' -derivedDataPath .build/XcodeDerivedData \
   CODE_SIGNING_ALLOWED=NO build
 ```
@@ -30,8 +30,8 @@ export CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-cache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/module-cache"
 swift build --cache-path .build/cache
 swift test --cache-path .build/cache --disable-xctest
-plutil -lint LocalMusic.xcodeproj/project.pbxproj
-xmllint --noout LocalMusic.xcodeproj/xcshareddata/xcschemes/LocalMusic.xcscheme
+plutil -lint MangoMusic.xcodeproj/project.pbxproj
+xmllint --noout MangoMusic.xcodeproj/xcshareddata/xcschemes/MangoMusic.xcscheme
 ```
 
 | Check | Actual result |
@@ -60,7 +60,7 @@ fopen failed for data file: errno = 2 (No such file or directory)
 
 Unified logs identified Apple's `libCoreFSCache.dylib` inside OpenGL.framework as the emitter. Each occurrence was followed by `Invalidating cache` from the same library and thread. The records do not name the missing file.
 
-This is a macOS framework diagnostic emitted inside the LocalMusic process. Application source contains no matching log or explicit data-file loading operation. The app remained running with its window visible afterward. No functionality impact was observed, and no application code or log-suppression settings were changed. The evidence supports framework cache handling; it does not establish which cache file was missing.
+This is a macOS framework diagnostic emitted inside the MangoMusic process. Application source contains no matching log or explicit data-file loading operation. The app remained running with its window visible afterward. No functionality impact was observed, and no application code or log-suppression settings were changed. The evidence supports framework cache handling; it does not establish which cache file was missing.
 
 ## Screenshots and visual verification
 
@@ -70,7 +70,7 @@ Earlier executable launches using per-app Light/Dark overrides created a native 
 
 The app build and launch are confirmed. Remaining items require hands-on review:
 
-- [x] Open `LocalMusic.xcodeproj`, select LocalMusic / My Mac, build and run with full Xcode (confirmed by the developer; application build also independently verified).
+- [x] Open `MangoMusic.xcodeproj`, select MangoMusic / My Mac, build and run with full Xcode (confirmed by the developer; application build also independently verified).
 - [ ] Review Light and Dark appearance; verify readable secondary text, selected rows and current-song pink indicators.
 - [ ] Confirm the initial window, native title bar, traffic lights, minimum size, and larger window layouts have no overlapping controls.
 - [ ] Collapse/expand using the visible toolbar button and Command+B; verify the content expands and sidebar visibility survives relaunch.
@@ -99,7 +99,7 @@ The app build and launch are confirmed. Remaining items require hands-on review:
 - PNG signatures, dimensions, chunk checksums and all ten manifest entries passed validation. Xcode successfully compiled the catalog.
 - The application bundle contains nonempty `AppIcon.icns` and `Assets.car`; icon metadata references `AppIcon`. The extracted bundled icon was visually checked against the supplied design.
 - Both final `CFBundleDisplayName` and `CFBundleName` are **Mango Music**. An explicit `App/Info.plist` supplies native application metadata because automatic generation retained the internal product name as the bundle name.
-- Executable/module/project/target/scheme remain **LocalMusic**. The bundle identifier remains `com.localmusic.LocalMusic`.
+- Executable/module/project/target/scheme are now **MangoMusic**. The bundle identifier is now `com.localmusic.MangoMusic`.
 - The final application bundle launched successfully. macOS reports its running application name as **Mango Music**, a regular Dock activation policy, an available application icon and one on-screen window.
 - Main window title and sidebar label are Mango Music. No playback, navigation, keyboard or model behavior was changed; existing tests remain unchanged.
 - `Package.swift` excludes the Xcode-only asset catalog and Info.plist. The Swift package test executable is not an icon-bearing application bundle.
@@ -107,11 +107,11 @@ The app build and launch are confirmed. Remaining items require hands-on review:
 Commands run after branding integration:
 
 ```sh
-xcodebuild -project LocalMusic.xcodeproj -scheme LocalMusic \
+xcodebuild -project MangoMusic.xcodeproj -scheme MangoMusic \
   -destination 'platform=macOS' -derivedDataPath .build/BrandingDerivedData \
   CODE_SIGNING_ALLOWED=NO build
 ./Scripts/check.sh
-plutil -lint LocalMusic/App/Info.plist LocalMusic.xcodeproj/project.pbxproj
+plutil -lint MangoMusic/App/Info.plist MangoMusic.xcodeproj/project.pbxproj
 ```
 
 Results: native application **BUILD SUCCEEDED**; package build and **all six existing tests passed**; property list and shared-scheme validation passed. Signing, notarization and distribution were not tested.
@@ -121,3 +121,9 @@ Manual checks remaining: inspect the Dock icon at normal size, the native applic
 ## Repository hygiene
 
 The original Checkpoint 1 commit remains in history. Branding changes are reviewed separately before a normal push to the existing `origin/main`. Shared project files, source, tests, script and documentation remain versioned. Build artifacts, generated previews, diagnostic logs and user-specific Xcode state remain ignored. The Downloads original and personal paths are not included in the repository.
+
+## Internal project rename
+
+Project, target, scheme, executable, Swift package and test module are now `MangoMusic` / `MangoMusicTests`. The display name remains Mango Music. The bundle identifier is `com.localmusic.MangoMusic`, retaining the existing reverse-domain prefix. This creates a separate macOS app preferences/container identity; only sidebar visibility was persisted, and its old value is not migrated. Git history and origin are retained.
+
+Phase A validation: renamed Xcode application build succeeded; all six existing tests passed through `Scripts/check.sh`. The new project was opened in Xcode and its app bundle launched with the unchanged Mango Music display name and icon metadata. Fresh package/module caches avoid stale paths from the original directory.

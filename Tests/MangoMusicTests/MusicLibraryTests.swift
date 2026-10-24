@@ -1,11 +1,11 @@
 import Foundation
 import Testing
-@testable import LocalMusic
+@testable import MangoMusic
 
 @MainActor
 struct MusicLibraryTests {
     @MainActor func makeLibrary() -> MusicLibrary {
-        let defaults = UserDefaults(suiteName: "LocalMusicTests.\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: "MangoMusicTests.\(UUID().uuidString)")!
         return MusicLibrary(defaults: defaults)
     }
 
@@ -75,7 +75,7 @@ struct MusicLibraryTests {
     }
 
     @Test func testSidebarVisibilityPersists() {
-        let suite = "LocalMusicTests.\(UUID().uuidString)"
+        let suite = "MangoMusicTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let library = MusicLibrary(defaults: defaults)

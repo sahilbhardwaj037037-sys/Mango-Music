@@ -13,16 +13,16 @@ Mango Music is a native macOS music application built with Swift and SwiftUI. It
 
 ## Open and run
 
-1. Clone this repository and open `LocalMusic.xcodeproj` in Xcode.
-2. Select the shared **LocalMusic** scheme and **My Mac** destination.
+1. Clone this repository and open `MangoMusic.xcodeproj` in Xcode.
+2. Select the shared **MangoMusic** scheme and **My Mac** destination.
 3. Press **Command+R** to build and launch.
 
-`App/Info.plist` supplies Mango Music application metadata while retaining the internal LocalMusic product and executable names. If Xcode requests a signing team, select your own local team; do not commit personal signing settings. Standalone distribution, notarization and release packaging are outside the current scope.
+`App/Info.plist` supplies Mango Music application metadata while retaining the internal MangoMusic product and executable names. If Xcode requests a signing team, select your own local team; do not commit personal signing settings. Standalone distribution, notarization and release packaging are outside the current scope.
 
 For an unsigned local build from the repository root:
 
 ```sh
-xcodebuild -project LocalMusic.xcodeproj -scheme LocalMusic \
+xcodebuild -project MangoMusic.xcodeproj -scheme MangoMusic \
   -destination 'platform=macOS' -derivedDataPath .build/XcodeDerivedData \
   CODE_SIGNING_ALLOWED=NO build
 ```
@@ -59,18 +59,18 @@ Only sidebar visibility is stored between launches. Queue, favorites, history, v
 The application uses one application-level `@Observable`, `@MainActor` state model. Every screen reads and updates the same model so queue, favorites, history and playback stay synchronized. Views contain presentation and local focus/selection state. The keyboard bridge scopes Space handling to the application window and leaves text editing alone.
 
 ```text
-LocalMusic/
+MangoMusic/
   App/             SwiftUI scene and command menus
   Assets.xcassets/ macOS AppIcon asset catalog
   Models/          Songs, queue/history entries and navigation destinations
   ViewModels/      MusicLibrary shared state and mock playback transitions
   Views/           Window, sidebar, song lists and playback bar
   Utilities/       AppKit keyboard event bridge
-LocalMusic.xcodeproj/
+MangoMusic.xcodeproj/
   project.pbxproj
   project.xcworkspace/contents.xcworkspacedata
-  xcshareddata/xcschemes/LocalMusic.xcscheme
-Tests/LocalMusicTests/  Swift Testing model tests
+  xcshareddata/xcschemes/MangoMusic.xcscheme
+Tests/MangoMusicTests/  Swift Testing model tests
 Scripts/check.sh       Package build, tests and project format checks
 Package.swift          Dependency-free executable and model test targets
 VALIDATION.md          Verification results, limits and manual review checklist
@@ -95,7 +95,7 @@ You can also open `Package.swift` separately in Xcode and run its model tests. S
 ## Development roadmap
 
 - **Checkpoint 1 — implemented:** native UI, fictional search results, mock queue, favorites, history and simulated playback. The app builds and launches in Xcode.
-- **Checkpoint 1.1 — implemented:** Mango Music display name, window/sidebar branding and supplied macOS app icon. Internal project, module, target and scheme remain `LocalMusic`; bundle identifier remains `com.localmusic.LocalMusic`.
+- **Checkpoint 1.1 — implemented:** Mango Music display name, window/sidebar branding and supplied macOS app icon. Internal project, module, target and scheme are now `MangoMusic`; bundle identifier is now `com.localmusic.MangoMusic`.
 - **Checkpoint 1 review — pending:** complete the manual Light/Dark, resizing, keyboard, drag-and-drop and accessibility checklist.
 - **Checkpoint 2 — not started:** agree on the next scope before adding real search or playback. Any future yt-dlp or mpv integration needs a separate implementation and validation pass.
 - **Later, separately scoped:** durable storage, packaging, signing and notarization. No release timeline or implementation commitment is implied.
@@ -105,3 +105,7 @@ You can also open `Package.swift` separately in Xcode and run its model tests. S
 Shared Xcode project files, workspace metadata and schemes belong in Git. Build output, DerivedData, `.build`, user-specific Xcode state, editor settings, local databases, logs, credentials and signing material are ignored. Keep any future environment examples free of real secrets.
 
 This checkpoint makes no external network requests and starts no audio processes.
+
+## Internal project rename
+
+Project, target, scheme, executable, Swift package and test module are now `MangoMusic` / `MangoMusicTests`. The display name remains Mango Music. The bundle identifier is `com.localmusic.MangoMusic`, retaining the existing reverse-domain prefix. This creates a separate macOS app preferences/container identity; only sidebar visibility was persisted, and its old value is not migrated. Git history and origin are retained.
