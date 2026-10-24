@@ -1,129 +1,93 @@
-# Mango Music — Checkpoint 1.1 validation
+# Mango Music — rename and Checkpoint 2 validation
 
-Last checked: October 24, 2026. The current version uses fictional mock songs and simulated playback only.
+Checked October 24, 2026, on Apple Silicon / macOS 26 with Xcode 27.1 and Swift 6.4. Minimum deployment remains macOS 14; older macOS versions and Intel runtime behavior have not been tested.
 
-## Current environment
+## Phase A: internal rename
 
-- Full Xcode 27.1, build 27A9275, is installed and selected.
-- Swift 6.4; Apple Silicon; macOS 26 development host.
-- Minimum deployment target: macOS 14. Older macOS releases and Intel hardware have not been runtime-tested.
-- No third-party dependencies or external audio tools are needed for this checkpoint.
+The existing repository moved from `LocalMusic` to `MangoMusic`. Its Git history, origin, Mango Music branding and exact icon assets were retained. The Xcode object identifiers stayed stable while source/project paths, target, shared scheme, executable, package and test module references were updated.
 
-Full Xcode was unavailable during initial implementation. That earlier limitation has been resolved. The application now builds and launches from Xcode on My Mac.
+- Xcode project: `MangoMusic.xcodeproj`
+- Target, scheme, executable and module: `MangoMusic`
+- Test target: `MangoMusicTests`
+- Bundle identifier: `com.localmusic.MangoMusic`
+- User-visible name: **Mango Music**
 
-## Publication validation commands
+Changing the identifier gives macOS a new preferences/container identity. The former saved sidebar visibility is not migrated. Queue, history and favorites were already in-memory only. Fresh package and compiler-cache paths in `Scripts/check.sh` avoid using precompiled files tied to the original directory.
 
-Run from the repository root:
+Phase A application build and all **six existing tests passed**. The renamed project opened in Xcode. The app launched, and macOS reported Mango Music, an available app icon, regular Dock activation policy and one on-screen window. Phase A was committed separately before search implementation.
+
+## Phase B: real search
+
+`YouTubeSearchService` calls the existing yt-dlp executable with explicit arguments and decodes flat-playlist JSON. It validates queries, caps the result list at ten, validates YouTube video identifiers, filters duplicate/unusable entries, handles optional channel/duration metadata and rejects malformed responses. Unknown or unreasonable duration is shown as **—**.
+
+`FoundationProcessRunner` runs off the main actor, drains stdout/stderr concurrently, limits output and enforces an overall timeout. Cancellation handles start/cancel races, sends termination and escalates to a kill for an unresponsive process. Closing the main window or terminating the application cancels an active search. A cancelled or superseded request cannot change newer search state, even if a service ignores cancellation.
+
+Requests only originate from explicit Return/Retry actions. Opening the app, editing text, clearing the input and ordinary navigation start no requests. No media or thumbnail downloads, audio streaming, mpv, paid API or browser integration was added. Search metadata can be used in the existing mock queue, favorites and history.
+
+## Security decision
+
+The owner explicitly approved disabling App Sandbox for local development. **Only Debug on the MangoMusic application target sets `ENABLE_APP_SANDBOX = NO`. Release retains `YES`.** No system-wide setting, SIP, Gatekeeper or unrelated target was changed.
+
+The service uses fixed tool installation paths and `Process.executableURL` / argument arrays. It never invokes a shell or executes returned metadata. User downloader configuration/plugins and persistent caching are disabled. A minimal subprocess environment excludes inherited credential/Python injection variables. Raw subprocess/server text is not presented as a UI error. Distribution and a sandbox-compatible bundled-helper design remain future work; Release external-tool search is not supported by this checkpoint.
+
+## Commands and actual results
+
+Phase A:
 
 ```sh
-./Scripts/check.sh
-
 xcodebuild -project MangoMusic.xcodeproj -scheme MangoMusic \
-  -destination 'platform=macOS' -derivedDataPath .build/XcodeDerivedData \
+  -destination 'platform=macOS' -derivedDataPath .build/RenameDerivedData \
   CODE_SIGNING_ALLOWED=NO build
+./Scripts/check.sh
 ```
 
-With full Xcode selected, the check script executes:
+Phase B:
 
 ```sh
-export CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-cache"
-export SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/module-cache"
-swift build --cache-path .build/cache
-swift test --cache-path .build/cache --disable-xctest
-plutil -lint MangoMusic.xcodeproj/project.pbxproj
-xmllint --noout MangoMusic.xcodeproj/xcshareddata/xcschemes/MangoMusic.xcscheme
+xcodebuild -project MangoMusic.xcodeproj -scheme MangoMusic \
+  -configuration Debug -destination 'platform=macOS' \
+  -derivedDataPath .build/SearchDerivedData CODE_SIGNING_ALLOWED=NO build
+./Scripts/check.sh
 ```
 
-| Check | Actual result |
+The script executes the Swift package build and test suite using `.build/MangoMusicPackage` and fresh project-local caches, then validates project plist and shared-scheme XML. No third-party packages are fetched.
+
+| Check | Result |
 | --- | --- |
-| Native Xcode application target build | **Passed — BUILD SUCCEEDED** |
-| Swift package executable build | **Passed** |
-| Swift Testing model suite | **6 passed, 0 failures** |
-| Xcode project property list | **Passed** |
-| Shared scheme XML | **Passed** |
-| App launch in Xcode / My Mac | **Confirmed by the developer** |
-| Existing Xcode-launched app process and window | **Independently confirmed after the reported console diagnostic** |
+| Phase A native Xcode build | Passed |
+| Phase A package build / six tests | Passed |
+| Phase B native Debug Xcode build | Passed |
+| Phase B Swift package build | Passed |
+| Automated tests | **27 tests in 3 suites passed** |
+| Xcode project plist / scheme XML | Passed |
+| Explicit live service search | **Passed: ten results, all ten with durations** |
+| Final Debug app launch | Passed: Mango Music name, icon available and one on-screen window |
 
-The Xcode build emits a metadata-extraction warning because the app has no AppIntents dependency. It does not prevent the build. Compiler plugins required running the checks outside the coding tool's restricted sandbox; no project settings were changed to bypass that restriction.
+The live check called the production `YouTubeSearchService`/`FoundationProcessRunner` with “Bach cello suite” using the installed Python-framework yt-dlp (2026.08.19). A temporary native executable compiled the same service and model source to perform this one explicit search. It was not an automated unit test or a simulated JSON result. It downloaded no media/artwork and committed no returned metadata. The service also detects Homebrew installation paths; the Homebrew binary present locally reports 2026.10.21.
 
-Tests cover search filtering and empty results, independent duplicate queue entries, queue reordering, timed playback advancement and stopping, favorites/pause/previous state, and sidebar visibility persistence.
+Automated tests are entirely offline. Coverage includes all existing queue/history/playback/sidebar behavior; fixture-based search integration; valid/empty/malformed JSON; missing and unknown metadata; duplicate removal and ten-result limit; input validation and literal arguments; missing executable and launch/nonzero errors; simultaneous pipe drainage beyond a pipe buffer; bounded output; actual child-process cancellation/timeout; initial idle state; loading, success, empty, error, Retry, clear and cancellation; stale success/error rejection; and favorites for real metadata with unknown-duration mock playback.
 
-Local build output and raw diagnostic logs are retained only under ignored `.build/`. Those artifacts can include machine-specific paths and are excluded from publication.
+The previous mock-only search test was adapted to an injected fixture service; it does not contact YouTube. Its empty-input assertion now tests clearing to idle, since an empty input must not trigger a real search. The other five original regression tests retain their behavior.
 
-## Investigated console diagnostic
+The native build can emit the existing AppIntents metadata-extraction warning because no AppIntents dependency is present. Build logs, generated smoke executables, temporary previews and raw diagnostics remain only in ignored `.build/`. Signing, notarization, distribution and Release search were not validated.
 
-The exact message reported during an Xcode launch was:
+## Manual checks
 
-```text
-fopen failed for data file: errno = 2 (No such file or directory)
-```
+1. Open the new project, run **MangoMusic / My Mac / Debug**, and confirm Mango Music's name and original icon.
+2. Type without pressing Return: no search should start. Press Return: verify loading and up to ten YouTube results, including channel and duration.
+3. Submit a new query while one is loading, or press Cancel. Verify the newer results/cancelled state stay visible. Retry should resubmit the last valid query.
+4. Clear the field: verify the initial search prompt, with no automatic request. Test an invalid or oversized query; it should show a validation message.
+5. Disconnect networking using your normal controls and submit a search. Verify a safe error/timeout and Retry. Automated tests cover nonzero/missing-executable behavior without changing installed tools.
+6. Add a result to the queue and favorites, submit another search, and revisit Favorites. Double-click/Return should update mock playback and history without producing sound.
+7. Verify Command+B, Command+F, typing spaces, list Return/Delete, queue reorder, Light/Dark contrast, resizing and VoiceOver labels. Unknown duration should show a dash with seeking disabled.
+8. Review the Debug-only sandbox setting and README security note before any future distribution work.
 
-Unified logs identified Apple's `libCoreFSCache.dylib` inside OpenGL.framework as the emitter. Each occurrence was followed by `Invalidating cache` from the same library and thread. The records do not name the missing file.
+Screen capture access is unavailable; no fabricated screenshots or unperformed visual checks are claimed. Full keyboard/pointer/accessibility review remains manual. YouTube availability and metadata may change; the implementation handles process failure without silent fallback to mock search results.
 
-This is a macOS framework diagnostic emitted inside the MangoMusic process. Application source contains no matching log or explicit data-file loading operation. The app remained running with its window visible afterward. No functionality impact was observed, and no application code or log-suppression settings were changed. The evidence supports framework cache handling; it does not establish which cache file was missing.
+## Historical console diagnostic
 
-## Screenshots and visual verification
+The Checkpoint 1 `fopen failed for data file: errno = 2 (No such file or directory)` message was traced to Apple's `libCoreFSCache.dylib` in OpenGL.framework, followed by `Invalidating cache`. No matching app file-loading operation was found, and no logging was suppressed. That earlier framework diagnostic is separate from yt-dlp error handling.
 
-Earlier executable launches using per-app Light/Dark overrides created a native 800 × 560 window. Screen capture access was unavailable, so no screenshots were captured. Those launch checks do not establish that every visual or input behavior has passed review.
+## Scope
 
-## Manual visual and interaction review checklist
-
-The app build and launch are confirmed. Remaining items require hands-on review:
-
-- [x] Open `MangoMusic.xcodeproj`, select MangoMusic / My Mac, build and run with full Xcode (confirmed by the developer; application build also independently verified).
-- [ ] Review Light and Dark appearance; verify readable secondary text, selected rows and current-song pink indicators.
-- [ ] Confirm the initial window, native title bar, traffic lights, minimum size, and larger window layouts have no overlapping controls.
-- [ ] Collapse/expand using the visible toolbar button and Command+B; verify the content expands and sidebar visibility survives relaunch.
-- [ ] Use Command+F from every screen; type a query containing spaces and submit Return. Verify the input is focused and Space never starts playback while typing.
-- [ ] Single-click and arrow through songs; double-click and press Return in a focused list to play. Verify selection and the currently playing indicator remain distinguishable.
-- [ ] Add a song twice; reorder its queue entries independently, remove one with its button, remove a selected entry with Delete, and clear the queue.
-- [ ] Drag an upcoming row onto another, and verify Move to Top works through the context menu.
-- [ ] Toggle hearts on different screens; verify Favorites synchronizes, History records playback, and their empty states remain readable at minimum size.
-- [ ] Exercise previous/play/pause/next, seek to an arbitrary time and the end, change volume, and verify all controls only update mock state.
-- [ ] Confirm Space respects focused native controls and Return/Delete do not interfere with text editing.
-- [ ] Inspect button hover/help text and keyboard focus. Use VoiceOver to review search, song actions, playback and volume labels.
-- [ ] Capture genuine Light and Dark screenshots after allowing screen capture through the normal macOS process, if desired.
-
-## Scope and remaining limits
-
-- Only sidebar visibility persists; queue, favorites, history, volume and playback reset on restart.
-- Model tests do not cover pointer gestures, focus, drag-and-drop, accessibility behavior or visual layout.
-- The Xcode project has one application target. The test target is defined by `Package.swift`.
-- No real search/audio, yt-dlp/mpv calls, database, distribution packaging, signing/notarization workflow or Checkpoint 2 functionality is implemented.
-
-## Checkpoint 1.1 branding and icon validation
-
-- Supplied source: genuine PNG, 1254 × 1254 pixels, RGB, no alpha channel. Its original download remains unchanged.
-- The supplied design has opaque white corners. Those corners are preserved; no background removal, cropping, redesign, upscaling or replacement artwork was performed.
-- Added the standard ten macOS AppIcon slots (16, 32, 128, 256 and 512 points at 1×/2×), covering physical sizes from 16 to 1024 pixels. Derivatives are PNGs with optional text/EXIF metadata removed.
-- PNG signatures, dimensions, chunk checksums and all ten manifest entries passed validation. Xcode successfully compiled the catalog.
-- The application bundle contains nonempty `AppIcon.icns` and `Assets.car`; icon metadata references `AppIcon`. The extracted bundled icon was visually checked against the supplied design.
-- Both final `CFBundleDisplayName` and `CFBundleName` are **Mango Music**. An explicit `App/Info.plist` supplies native application metadata because automatic generation retained the internal product name as the bundle name.
-- Executable/module/project/target/scheme are now **MangoMusic**. The bundle identifier is now `com.localmusic.MangoMusic`.
-- The final application bundle launched successfully. macOS reports its running application name as **Mango Music**, a regular Dock activation policy, an available application icon and one on-screen window.
-- Main window title and sidebar label are Mango Music. No playback, navigation, keyboard or model behavior was changed; existing tests remain unchanged.
-- `Package.swift` excludes the Xcode-only asset catalog and Info.plist. The Swift package test executable is not an icon-bearing application bundle.
-
-Commands run after branding integration:
-
-```sh
-xcodebuild -project MangoMusic.xcodeproj -scheme MangoMusic \
-  -destination 'platform=macOS' -derivedDataPath .build/BrandingDerivedData \
-  CODE_SIGNING_ALLOWED=NO build
-./Scripts/check.sh
-plutil -lint MangoMusic/App/Info.plist MangoMusic.xcodeproj/project.pbxproj
-```
-
-Results: native application **BUILD SUCCEEDED**; package build and **all six existing tests passed**; property list and shared-scheme validation passed. Signing, notarization and distribution were not tested.
-
-Manual checks remaining: inspect the Dock icon at normal size, the native application/About menu name and About panel icon, and window/sidebar branding in both Light and Dark appearances. Screen capture permission was not requested or changed.
-
-## Repository hygiene
-
-The original Checkpoint 1 commit remains in history. Branding changes are reviewed separately before a normal push to the existing `origin/main`. Shared project files, source, tests, script and documentation remain versioned. Build artifacts, generated previews, diagnostic logs and user-specific Xcode state remain ignored. The Downloads original and personal paths are not included in the repository.
-
-## Internal project rename
-
-Project, target, scheme, executable, Swift package and test module are now `MangoMusic` / `MangoMusicTests`. The display name remains Mango Music. The bundle identifier is `com.localmusic.MangoMusic`, retaining the existing reverse-domain prefix. This creates a separate macOS app preferences/container identity; only sidebar visibility was persisted, and its old value is not migrated. Git history and origin are retained.
-
-Phase A validation: renamed Xcode application build succeeded; all six existing tests passed through `Scripts/check.sh`. The new project was opened in Xcode and its app bundle launched with the unchanged Mango Music display name and icon metadata. Fresh package/module caches avoid stale paths from the original directory.
+Playback, seeking and volume remain mock state. Nothing from Checkpoint 3, including actual audio playback or mpv integration, is implemented. Existing commits and origin are retained; the rename and search are separate commits, pushed normally after validation.

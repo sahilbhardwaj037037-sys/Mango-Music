@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import AppKit
 
 struct MainWindow: View {
     @Bindable var library: MusicLibrary
@@ -30,12 +31,16 @@ struct MainWindow: View {
                 .accessibilityLabel("Toggle sidebar")
             }
             ToolbarItem(placement: .primaryAction) {
-                Text("Mock Library")
+                Text("Mock Playback")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
         .background(PlaybackKeyboardHandler(library: library))
         .onReceive(timer) { _ in library.tick() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            library.cancelSearch()
+        }
+        .onDisappear { library.cancelSearch() }
     }
 
     private var sidebar: some View {

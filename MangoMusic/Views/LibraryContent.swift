@@ -29,7 +29,7 @@ struct LibraryContent: View {
                         .onSubmit { library.search(); searchFocused = false; listFocused = true }
                         .accessibilityLabel("Search songs or artists")
                     if !library.query.isEmpty {
-                        Button { library.query = ""; library.search() } label: {
+                        Button { library.clearSearch() } label: {
                             Image(systemName: "xmark.circle.fill")
                         }
                         .buttonStyle(.plain).foregroundStyle(.secondary)
@@ -43,8 +43,7 @@ struct LibraryContent: View {
 
             switch library.destination {
             case .search:
-                songList(library.results, emptyTitle: "No songs found", symbol: "magnifyingglass",
-                         detail: "Try another song title or artist.")
+                searchContent
             case .favorites:
                 songList(library.favorites, emptyTitle: "Keep your favorites close", symbol: "heart",
                          detail: "Tap a heart beside a song to save it here.")
@@ -55,7 +54,44 @@ struct LibraryContent: View {
             }
         }
         .onChange(of: library.searchFocusRequest) { _, _ in searchFocused = true }
+        .onChange(of: library.searchState) { _, state in
+            if state == .loaded && library.destination == .search && !searchFocused { listFocused = true }
+        }
         .onChange(of: library.destination) { _, _ in selection = nil; queueSelection = nil }
+    }
+
+    @ViewBuilder private var searchContent: some View {
+        switch library.searchState {
+        case .idle:
+            emptyState("Search YouTube", symbol: "magnifyingglass",
+                       detail: "Enter a song or artist and press Return. Playback is simulated.")
+        case .loading:
+            VStack(spacing: 16) {
+                ProgressView("Searching YouTube…")
+                Button("Cancel", action: library.cancelSearch)
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .failure(let message):
+            VStack {
+                ContentUnavailableView("Search unavailable", systemImage: "exclamationmark.triangle",
+                                       description: Text(message))
+                if !library.submittedQuery.isEmpty { Button("Retry", action: library.retrySearch) }
+            }.padding(.bottom, 24).frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .cancelled:
+            VStack {
+                ContentUnavailableView("Search cancelled", systemImage: "xmark.circle",
+                                       description: Text("No new search runs until you press Return or Retry."))
+                Button("Retry", action: library.retrySearch)
+            }.padding(.bottom, 24).frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .empty:
+            emptyState("No songs found", symbol: "magnifyingglass",
+                       detail: "No results for \(library.submittedQuery). Try another search.")
+        case .loaded:
+            VStack(alignment: .leading, spacing: 4) {
+                Text("YouTube results for “\(library.submittedQuery)” · Mock playback")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1).padding(.horizontal, 24)
+                songList(library.results, emptyTitle: "No songs found", symbol: "magnifyingglass", detail: "Try another search.")
+            }
+        }
     }
 
     @ViewBuilder
@@ -77,7 +113,7 @@ struct LibraryContent: View {
                 library.play(song); return .handled
             }
             .overlay(alignment: .bottomLeading) {
-                Text("\(songs.count) songs · Double-click to play")
+                Text("\(songs.count) songs · Double-click to simulate playback")
                     .font(.caption).foregroundStyle(.secondary)
                     .padding(.horizontal, 24).padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading).background(.bar)

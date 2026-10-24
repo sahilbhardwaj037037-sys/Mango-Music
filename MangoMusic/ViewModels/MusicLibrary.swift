@@ -1,11 +1,21 @@
 import SwiftUI
 import Observation
 
+enum SearchState: Equatable {
+    case idle, loading, loaded, empty, cancelled, failure(String)
+}
+
 @MainActor @Observable
 final class MusicLibrary {
     var destination: Destination = .search
     var query = ""
-    var results = Song.samples
+    private(set) var results: [Song] = []
+    private(set) var searchState: SearchState = .idle
+    private(set) var submittedQuery = ""
+    @ObservationIgnored private let searchService: any SongSearching
+    @ObservationIgnored private(set) var searchTask: Task<Void, Never>?
+    private var searchID = UUID()
+    private var knownSongs = Dictionary(uniqueKeysWithValues: Song.samples.map { ($0.id, $0) })
     var queue: [QueueEntry] = []
     var favoriteIDs: Set<String> = []
     var history: [HistoryEntry] = []
@@ -20,19 +30,70 @@ final class MusicLibrary {
         didSet { defaults.set(sidebarVisible, forKey: "sidebarVisible") }
     }
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, searchService: any SongSearching = YouTubeSearchService()) {
+        self.searchService = searchService
         self.defaults = defaults
         sidebarVisible = defaults.object(forKey: "sidebarVisible") as? Bool ?? true
     }
 
-    var favorites: [Song] { Song.samples.filter { favoriteIDs.contains($0.id) } }
+    var favorites: [Song] {
+        knownSongs.values.filter { favoriteIDs.contains($0.id) }
+            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    }
 
     func search() {
-        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        results = Array(Song.samples.filter {
-            term.isEmpty || $0.title.localizedCaseInsensitiveContains(term)
-                || $0.artist.localizedCaseInsensitiveContains(term)
-        }.prefix(10))
+        cancelSearch()
+        let term: String
+        do { term = try SearchQuery.validate(query) }
+        catch {
+            submittedQuery = ""
+            searchState = .failure(SearchError.invalidQuery.localizedDescription)
+            results = []
+            return
+        }
+        submittedQuery = term
+        results = []
+        searchState = .loading
+        let request = UUID()
+        searchID = request
+        let service = searchService
+        searchTask = Task { [weak self] in
+            do {
+                let songs = try await service.search(query: term)
+                guard let self, self.searchID == request, !Task.isCancelled else { return }
+                self.results = songs
+                self.searchState = songs.isEmpty ? .empty : .loaded
+            } catch {
+                guard let self, self.searchID == request else { return }
+                if error is CancellationError || Task.isCancelled {
+                    self.searchState = .cancelled
+                } else {
+                    self.searchState = .failure((error as? SearchError)?.localizedDescription
+                        ?? "Search failed. Please retry.")
+                }
+            }
+        }
+    }
+
+    func cancelSearch() {
+        searchID = UUID()
+        searchTask?.cancel()
+        searchTask = nil
+        if searchState == .loading { searchState = .cancelled }
+    }
+
+    func clearSearch() {
+        cancelSearch()
+        query = ""
+        submittedQuery = ""
+        results = []
+        searchState = .idle
+    }
+
+    func retrySearch() {
+        guard !submittedQuery.isEmpty else { return }
+        query = submittedQuery
+        search()
     }
 
     func focusSearch() {
@@ -45,6 +106,7 @@ final class MusicLibrary {
     }
 
     func toggleFavorite(_ song: Song) {
+        knownSongs[song.id] = song
         if !favoriteIDs.insert(song.id).inserted { favoriteIDs.remove(song.id) }
     }
 
@@ -100,7 +162,7 @@ final class MusicLibrary {
     }
 
     func tick() {
-        guard isPlaying, let song = currentSong else { return }
+        guard isPlaying, let song = currentSong, song.duration > 0 else { return }
         progress = min(progress + 1, song.duration)
         if progress >= song.duration { next() }
     }

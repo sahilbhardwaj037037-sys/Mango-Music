@@ -19,7 +19,7 @@ struct SongRow: View {
                 Text(song.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 8)
-            Text(song.duration.timestamp).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            Text(song.durationLabel).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             Button { library.toggleFavorite(song) } label: {
                 Image(systemName: library.favoriteIDs.contains(song.id) ? "heart.fill" : "heart")
                     .foregroundStyle(library.favoriteIDs.contains(song.id) ? Color.pink : Color.secondary)

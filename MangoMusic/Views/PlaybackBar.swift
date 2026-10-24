@@ -38,10 +38,10 @@ struct PlaybackBar: View {
             HStack(spacing: 10) {
                 Text(library.progress.timestamp).frame(width: 32, alignment: .trailing)
                 Slider(value: $library.progress, in: 0...max(1, library.currentSong?.duration ?? 1))
-                    .disabled(library.currentSong == nil)
+                    .disabled(library.currentSong == nil || library.currentSong?.durationKnown == false)
                     .accessibilityLabel("Playback position")
                     .accessibilityValue("\(library.progress.timestamp) of \((library.currentSong?.duration ?? 0).timestamp)")
-                Text((library.currentSong?.duration ?? 0).timestamp).frame(width: 32, alignment: .leading)
+                Text(library.currentSong?.durationLabel ?? "0:00").frame(width: 32, alignment: .leading)
             }
             .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
         }

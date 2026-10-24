@@ -5,6 +5,8 @@ struct Song: Identifiable, Hashable, Sendable {
     let title: String
     let artist: String
     let duration: TimeInterval
+    var durationKnown: Bool = true
+    var durationLabel: String { durationKnown ? duration.timestamp : "—" }
 
     static let samples: [Song] = [
         Song(id: "1", title: "Morning Light", artist: "The Quiet Hours", duration: 224),

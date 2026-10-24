@@ -4,22 +4,24 @@ import Testing
 
 @MainActor
 struct MusicLibraryTests {
-    @MainActor func makeLibrary() -> MusicLibrary {
+    @MainActor func makeLibrary(searchService: any SongSearching = FixtureSearch()) -> MusicLibrary {
         let defaults = UserDefaults(suiteName: "MangoMusicTests.\(UUID().uuidString)")!
-        return MusicLibrary(defaults: defaults)
+        return MusicLibrary(defaults: defaults, searchService: searchService)
     }
 
-    @Test func testSearchMatchesArtistAndHandlesNoResults() {
+    @Test func testSearchMatchesArtistAndHandlesNoResults() async {
         let library = makeLibrary()
         library.query = "  mira sol "
         library.search()
+        await library.searchTask?.value
         #expect(library.results.count == 2)
         library.query = "not a song"
         library.search()
+        await library.searchTask?.value
         #expect(library.results.isEmpty)
-        library.query = ""
-        library.search()
-        #expect(library.results.count == 10)
+        library.clearSearch()
+        #expect(library.results.isEmpty)
+        #expect(library.searchState == .idle)
     }
 
     @Test func testDuplicateQueueEntriesHaveIndependentIdentity() {
@@ -82,5 +84,11 @@ struct MusicLibraryTests {
         #expect(library.sidebarVisible)
         library.toggleSidebar()
         #expect(!(MusicLibrary(defaults: defaults).sidebarVisible))
+    }
+}
+
+private struct FixtureSearch: SongSearching {
+    func search(query: String) async throws -> [Song] {
+        Song.samples.filter { $0.artist.localizedCaseInsensitiveContains(query) || $0.title.localizedCaseInsensitiveContains(query) }
     }
 }
