@@ -5,7 +5,7 @@ struct LocalMusicApp: App {
     @State private var library = MusicLibrary()
 
     var body: some Scene {
-        Window("LocalMusic", id: "main") {
+        Window("Mango Music", id: "main") {
             MainWindow(library: library)
                 .tint(.pink)
                 .frame(minWidth: 700, minHeight: 480)

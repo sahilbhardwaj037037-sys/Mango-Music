@@ -6,7 +6,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [.executable(name: "LocalMusic", targets: ["LocalMusic"])],
     targets: [
-        .executableTarget(name: "LocalMusic", path: "LocalMusic"),
+        .executableTarget(name: "LocalMusic", path: "LocalMusic", exclude: ["Assets.xcassets", "App/Info.plist"]),
         .testTarget(name: "LocalMusicTests", dependencies: ["LocalMusic"], path: "Tests/LocalMusicTests")
     ]
 )

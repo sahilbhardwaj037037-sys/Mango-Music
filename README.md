@@ -1,8 +1,8 @@
-# LocalMusic
+# Mango Music
 
-LocalMusic is a native macOS music application built with Swift and SwiftUI. It aims for a simple, lightweight interface inspired by native macOS music libraries, with a sidebar, song lists and playback controls.
+Mango Music is a native macOS music application built with Swift and SwiftUI. It aims for a simple, lightweight interface inspired by native macOS music libraries, with a sidebar, song lists and playback controls.
 
-**Current status: Checkpoint 1. All songs are fictional mock data. The app does not stream or play real music, search YouTube, or run external audio tools.**
+**Current status: Checkpoint 1.1 — branding and app icon integration. All songs are fictional mock data. The app does not stream or play real music, search YouTube, or run external audio tools.**
 
 ## Requirements
 
@@ -17,7 +17,7 @@ LocalMusic is a native macOS music application built with Swift and SwiftUI. It 
 2. Select the shared **LocalMusic** scheme and **My Mac** destination.
 3. Press **Command+R** to build and launch.
 
-Xcode generates the Info.plist. If Xcode requests a signing team, select your own local team; do not commit personal signing settings. Standalone distribution, notarization and release packaging are outside the current scope.
+`App/Info.plist` supplies Mango Music application metadata while retaining the internal LocalMusic product and executable names. If Xcode requests a signing team, select your own local team; do not commit personal signing settings. Standalone distribution, notarization and release packaging are outside the current scope.
 
 For an unsigned local build from the repository root:
 
@@ -32,7 +32,7 @@ Check the active developer tools with `xcode-select -p` and `xcodebuild -version
 ## Checkpoint 1 features
 
 - Native, resizable window with an initial size of approximately 800 × 560 points and a sensible minimum size.
-- Automatic Light/Dark appearance, San Francisco typography, pink accent, subtle hover states and sidebar animation. No artwork or decorative images.
+- Automatic Light/Dark appearance, San Francisco typography, pink accent, subtle hover states and sidebar animation. No song artwork or decorative images in the library UI.
 - Collapsible sidebar with Search, Up Next, Favorites and History. Sidebar visibility persists across launches.
 - Search by song title or artist across ten fictional tracks. Return submits the query; unmatched queries show an empty state.
 - Native row selection and a separate current-song indicator. Double-click or Return in a focused song list simulates playback.
@@ -61,6 +61,7 @@ The application uses one application-level `@Observable`, `@MainActor` state mod
 ```text
 LocalMusic/
   App/             SwiftUI scene and command menus
+  Assets.xcassets/ macOS AppIcon asset catalog
   Models/          Songs, queue/history entries and navigation destinations
   ViewModels/      MusicLibrary shared state and mock playback transitions
   Views/           Window, sidebar, song lists and playback bar
@@ -75,7 +76,9 @@ Package.swift          Dependency-free executable and model test targets
 VALIDATION.md          Verification results, limits and manual review checklist
 ```
 
-The Xcode project defines the application target. `Package.swift` provides an alternative executable build and the model test target. Future external search and playback services can be added separately; none are implemented yet.
+The Xcode project defines the application target and compiles the supplied AppIcon catalog. Icon images are resized from the supplied square logo without cropping; its existing opaque background is preserved. The Swift package excludes the Xcode-only asset catalog and provides model checks without an application bundle icon.
+
+`Package.swift` also provides an alternative executable build and the model test target. Future external search and playback services can be added separately; none are implemented yet.
 
 ## Validation
 
@@ -92,6 +95,7 @@ You can also open `Package.swift` separately in Xcode and run its model tests. S
 ## Development roadmap
 
 - **Checkpoint 1 — implemented:** native UI, fictional search results, mock queue, favorites, history and simulated playback. The app builds and launches in Xcode.
+- **Checkpoint 1.1 — implemented:** Mango Music display name, window/sidebar branding and supplied macOS app icon. Internal project, module, target and scheme remain `LocalMusic`; bundle identifier remains `com.localmusic.LocalMusic`.
 - **Checkpoint 1 review — pending:** complete the manual Light/Dark, resizing, keyboard, drag-and-drop and accessibility checklist.
 - **Checkpoint 2 — not started:** agree on the next scope before adding real search or playback. Any future yt-dlp or mpv integration needs a separate implementation and validation pass.
 - **Later, separately scoped:** durable storage, packaging, signing and notarization. No release timeline or implementation commitment is implied.

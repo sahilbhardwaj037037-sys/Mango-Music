@@ -40,7 +40,7 @@ struct MainWindow: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("LocalMusic").font(.title3.weight(.semibold)).padding(.horizontal, 14)
+            Text("Mango Music").font(.title3.weight(.semibold)).padding(.horizontal, 14)
             List(selection: $library.destination) {
                 Section("Library") {
                     ForEach(Destination.allCases) { destination in

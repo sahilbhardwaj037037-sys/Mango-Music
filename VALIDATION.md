@@ -1,4 +1,4 @@
-# Checkpoint 1 validation
+# Mango Music — Checkpoint 1.1 validation
 
 Last checked: October 24, 2026. The current version uses fictional mock songs and simulated playback only.
 
@@ -91,8 +91,33 @@ The app build and launch are confirmed. Remaining items require hands-on review:
 - The Xcode project has one application target. The test target is defined by `Package.swift`.
 - No real search/audio, yt-dlp/mpv calls, database, distribution packaging, signing/notarization workflow or Checkpoint 2 functionality is implemented.
 
-## Publication preparation
+## Checkpoint 1.1 branding and icon validation
 
-The local repository is prepared on `main`. No initial commit, remote repository or push has been made; these require explicit approval after reviewing the proposed file list.
+- Supplied source: genuine PNG, 1254 × 1254 pixels, RGB, no alpha channel. Its original download remains unchanged.
+- The supplied design has opaque white corners. Those corners are preserved; no background removal, cropping, redesign, upscaling or replacement artwork was performed.
+- Added the standard ten macOS AppIcon slots (16, 32, 128, 256 and 512 points at 1×/2×), covering physical sizes from 16 to 1024 pixels. Derivatives are PNGs with optional text/EXIF metadata removed.
+- PNG signatures, dimensions, chunk checksums and all ten manifest entries passed validation. Xcode successfully compiled the catalog.
+- The application bundle contains nonempty `AppIcon.icns` and `Assets.car`; icon metadata references `AppIcon`. The extracted bundled icon was visually checked against the supplied design.
+- Both final `CFBundleDisplayName` and `CFBundleName` are **Mango Music**. An explicit `App/Info.plist` supplies native application metadata because automatic generation retained the internal product name as the bundle name.
+- Executable/module/project/target/scheme remain **LocalMusic**. The bundle identifier remains `com.localmusic.LocalMusic`.
+- The final application bundle launched successfully. macOS reports its running application name as **Mango Music**, a regular Dock activation policy, an available application icon and one on-screen window.
+- Main window title and sidebar label are Mango Music. No playback, navigation, keyboard or model behavior was changed; existing tests remain unchanged.
+- `Package.swift` excludes the Xcode-only asset catalog and Info.plist. The Swift package test executable is not an icon-bearing application bundle.
 
-The publication candidate includes the shared Xcode project, workspace and scheme, all Swift source, model tests, validation script, package manifest and documentation. Ignore rules exclude generated output, user-specific settings, local databases, caches, logs, temporary files, credentials and signing material. Candidate files are checked for personal paths, account identifiers and common secret patterns before approval is requested.
+Commands run after branding integration:
+
+```sh
+xcodebuild -project LocalMusic.xcodeproj -scheme LocalMusic \
+  -destination 'platform=macOS' -derivedDataPath .build/BrandingDerivedData \
+  CODE_SIGNING_ALLOWED=NO build
+./Scripts/check.sh
+plutil -lint LocalMusic/App/Info.plist LocalMusic.xcodeproj/project.pbxproj
+```
+
+Results: native application **BUILD SUCCEEDED**; package build and **all six existing tests passed**; property list and shared-scheme validation passed. Signing, notarization and distribution were not tested.
+
+Manual checks remaining: inspect the Dock icon at normal size, the native application/About menu name and About panel icon, and window/sidebar branding in both Light and Dark appearances. Screen capture permission was not requested or changed.
+
+## Repository hygiene
+
+The original Checkpoint 1 commit remains in history. Branding changes are reviewed separately before a normal push to the existing `origin/main`. Shared project files, source, tests, script and documentation remain versioned. Build artifacts, generated previews, diagnostic logs and user-specific Xcode state remain ignored. The Downloads original and personal paths are not included in the repository.
