@@ -1,18 +1,25 @@
 import Foundation
 
 enum PlaybackEvent: Equatable {
-    case loaded, position(Double), duration(Double), paused(Bool), buffering(Bool), volume(Double), ended, failure(String)
+    case loaded, clockAnchor, position(Double), duration(Double), paused(Bool), buffering(Bool), volume(Double), ended, failure(String)
 }
 
 @MainActor
 protocol AudioPlaying: AnyObject {
     var onEvent: ((UUID, PlaybackEvent) -> Void)? { get set }
-    func load(_ url: URL, request: UUID, volume: Double) async throws
+    func load(_ url: URL, request: UUID, volume: Double, paused: Bool) async throws
     func pause(_ paused: Bool) async throws
     func seek(_ position: Double) async throws
     func volume(_ value: Double) async throws
     func stop() async
+    func interrupt()
     func shutdown()
+}
+
+extension AudioPlaying {
+    func load(_ url: URL, request: UUID, volume: Double) async throws {
+        try await load(url, request: request, volume: volume, paused: false)
+    }
 }
 
 @MainActor
@@ -23,10 +30,13 @@ final class MPVPlaybackEngine: AudioPlaying {
     private var entry: Int?
     private var completed = false
     private var watchdog: Task<Void, Never>?
+    private var interruptionTask: Task<Void, Never>?
     init(connection: MPVConnection = MPVConnection()) { self.connection = connection }
 
-    func load(_ url: URL, request: UUID, volume: Double) async throws {
+    func load(_ url: URL, request: UUID, volume: Double, paused: Bool) async throws {
         watchdog?.cancel()
+        await interruptionTask?.value
+        try Task.checkCancellation()
         try await connection.start(sink: { [weak self] id, message in
             Task { @MainActor in self?.receive(id, message) }
         }, failure: { [weak self] id, error in
@@ -39,7 +49,7 @@ final class MPVPlaybackEngine: AudioPlaying {
         self.request = request; entry = nil; completed = false
         await connection.setGeneration(request)
         try await connection.command(["set_property", "volume", min(1, max(0, volume)) * 100])
-        try await connection.command(["set_property", "pause", false])
+        try await connection.command(["set_property", "pause", paused])
         try Task.checkCancellation()
         watchdog = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(45)) } catch { return }
@@ -58,6 +68,11 @@ final class MPVPlaybackEngine: AudioPlaying {
         watchdog?.cancel(); completed = true
         try? await connection.command(["stop"])
     }
+    func interrupt() {
+        watchdog?.cancel(); completed = true
+        connection.owner.shutdown()
+        interruptionTask = Task { await connection.shutdown() }
+    }
     func shutdown() {
         watchdog?.cancel()
         connection.owner.shutdown(permanent: true)
@@ -68,6 +83,7 @@ final class MPVPlaybackEngine: AudioPlaying {
         switch message.event {
         case "start-file": entry = message.entry
         case "file-loaded": watchdog?.cancel(); onEvent?(id, .loaded)
+        case "playback-restart": onEvent?(id, .clockAnchor)
         case "end-file":
             guard !completed, message.entry == entry, entry != nil else { return }
             if message.reason == "eof" {

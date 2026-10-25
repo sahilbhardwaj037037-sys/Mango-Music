@@ -108,14 +108,15 @@ final class FixturePlayer: AudioPlaying {
     var stops = 0
     var shutdowns = 0
     var loads = 0
-    func load(_ url: URL, request: UUID, volume: Double) async throws {
+    func load(_ url: URL, request: UUID, volume: Double, paused: Bool) async throws {
         self.request = request; loads += 1
-        onEvent?(request, .loaded); onEvent?(request, .duration(100)); onEvent?(request, .position(0.1))
+        onEvent?(request, .loaded); onEvent?(request, .duration(100)); onEvent?(request, .paused(paused)); if !paused { onEvent?(request, .position(0.1)) }
     }
     func pause(_ paused: Bool) async throws { pauses.append(paused); onEvent?(request, .paused(paused)) }
     func seek(_ position: Double) async throws { seeks.append(position); onEvent?(request, .position(position)) }
     func volume(_ value: Double) async throws { volumes.append(value); onEvent?(request, .volume(value)) }
     func stop() async { stops += 1 }
+    func interrupt() {}
     func shutdown() { shutdowns += 1 }
     func emit(_ event: PlaybackEvent) { onEvent?(request, event) }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import Testing
 @testable import MangoMusic
 
@@ -40,6 +41,22 @@ struct MPVIntegrationTests {
         try await wait { events.contains(.loaded) }
         await player.stop()
         #expect(!events.contains(.ended))
+        // Paused loads must stay paused, and interruptions must kill/recover the owned process.
+        events.removeAll()
+        try await player.load(file, request: UUID(), volume: 0.4, paused: true)
+        try await wait { events.contains(.loaded) && events.contains(.paused(true)) }
+        let ownedPID = try #require(connection.owner.processIdentifier)
+        try await player.seek(3)
+        try await wait { events.contains(where: { if case .position(let p) = $0 { return p >= 2.9 }; return false }) }
+        #expect(connection.owner.processIdentifier == ownedPID)
+        player.interrupt()
+        #expect(connection.owner.processIdentifier == nil)
+        try await wait { Darwin.kill(ownedPID, 0) == -1 && errno == ESRCH }
+        events.removeAll()
+        try await player.load(file, request: UUID(), volume: 0.4)
+        try await wait { events.contains(.loaded) }
+        #expect(connection.owner.processIdentifier != nil)
+        await player.stop()
         // Exercise production manual queue transitions against real mpv events using local audio.
         let databaseDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("MangoLocalIntegration-\(UUID())")
         let databaseURL = databaseDirectory.appendingPathComponent("library.sqlite3")

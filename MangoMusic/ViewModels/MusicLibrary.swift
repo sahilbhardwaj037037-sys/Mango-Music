@@ -30,6 +30,11 @@ final class MusicLibrary {
     @ObservationIgnored private(set) var playbackTask: Task<Void, Never>?
     @ObservationIgnored private var controlTask: Task<Void, Never>?
     private var playbackID = UUID()
+    private var desiredPaused = false
+    private var systemSleeping = false
+    private var mediaPositionRevision = 0
+    private(set) var playbackNotice: String?
+    @ObservationIgnored var onMediaStateChange: (() -> Void)?
     private var pendingQueueEntry: QueueEntry?
     private var historyRecorded = false
     @ObservationIgnored private let store: (any LibraryPersisting)?
@@ -153,22 +158,26 @@ final class MusicLibrary {
     }
 
     func enqueue(_ song: Song) {
+        defer { onMediaStateChange?() }
         guard canEditLibrary else { return }
         queue.append(QueueEntry(song: song)); scheduleSave()
     }
 
     func play(_ song: Song) {
-        guard canEditLibrary else { return }
+        guard canEditLibrary, !systemSleeping else { return }
         if let currentSong { previousSongs.append(currentSong) }
         beginPlayback(song)
     }
 
     func playNext(_ song: Song) {
+        defer { onMediaStateChange?() }
         guard canEditLibrary else { return }
         queue.insert(QueueEntry(song: song), at: 0); scheduleSave()
     }
 
-    private func beginPlayback(_ song: Song, queueEntry: QueueEntry? = nil, retry: Bool = false) {
+    private func beginPlayback(_ song: Song, queueEntry: QueueEntry? = nil, retry: Bool = false, paused: Bool = false) {
+        defer { onMediaStateChange?() }
+        desiredPaused = paused; playbackNotice = nil
         returnPendingEntry()
         if let queueEntry { queue.removeAll { $0.id == queueEntry.id } }
         pendingQueueEntry = queueEntry
@@ -200,7 +209,7 @@ final class MusicLibrary {
                 let url = try await resolver.resolve(song)
                 try Task.checkCancellation()
                 guard let self, self.playbackID == request else { return }
-                try await player.load(url, request: request, volume: self.volume)
+                try await player.load(url, request: request, volume: self.volume, paused: paused)
                 try Task.checkCancellation()
             } catch {
                 guard let self, self.playbackID == request, !Task.isCancelled else { return }
@@ -211,10 +220,11 @@ final class MusicLibrary {
 
     func receive(_ request: UUID, _ event: PlaybackEvent) {
         guard request == playbackID, !ended, playbackError == nil else { return }
+        defer { onMediaStateChange?() }
         switch event {
         case .loaded:
             guard !loaded else { return }
-            loaded = true; isLoading = false; isPlaying = true
+            loaded = true; isLoading = false; isPlaying = !desiredPaused
         case .position(let value):
             guard value.isFinite, value >= 0 else { return }
             progress = value
@@ -229,7 +239,8 @@ final class MusicLibrary {
             }
         case .paused(let value): if loaded { isPlaying = !value }
         case .buffering(let value): isBuffering = value
-        case .volume(let value): volume = min(1, max(0, value))
+        case .volume(let value): if value.isFinite { volume = min(1, max(0, value)) }
+        case .clockAnchor: mediaPositionRevision += 1
         case .ended:
             guard historyRecorded else { fail("Playback ended before audio started. Retry or choose another song."); return }
             ended = true; isPlaying = false; isLoading = false; isBuffering = false
@@ -239,6 +250,8 @@ final class MusicLibrary {
     }
 
     private func fail(_ message: String) {
+        defer { onMediaStateChange?() }
+        desiredPaused = true
         playbackError = message
         isPlaying = false; isLoading = false; isBuffering = false
         let player = player
@@ -246,28 +259,45 @@ final class MusicLibrary {
     }
 
     func retryPlayback() {
-        guard canEditLibrary, let currentSong else { return }
+        guard canEditLibrary, !systemSleeping, let currentSong else { return }
         beginPlayback(currentSong, queueEntry: pendingQueueEntry, retry: !ended)
     }
 
-    func playQueueEntry(_ id: UUID) {
-        guard canEditLibrary, let index = queue.firstIndex(where: { $0.id == id }) else { return }
+    func playQueueEntry(_ id: UUID, paused: Bool = false) {
+        guard canEditLibrary, !systemSleeping, let index = queue.firstIndex(where: { $0.id == id }) else { return }
         let entry = queue.remove(at: index)
         if let currentSong { previousSongs.append(currentSong) }
-        beginPlayback(entry.song, queueEntry: entry)
+        beginPlayback(entry.song, queueEntry: entry, paused: paused)
+    }
+
+    func playPlayback() {
+        guard canEditLibrary, !systemSleeping, !isLoading else { return }
+        if currentSong == nil { if !queue.isEmpty { next() }; return }
+        if playbackError != nil || ended { retryPlayback(); return }
+        guard loaded, desiredPaused else { return }
+        desiredPaused = false
+        performControl { try await $0.pause(false) }
+        onMediaStateChange?()
+    }
+
+    func pausePlayback() {
+        guard canEditLibrary, !systemSleeping else { return }
+        if isLoading { stop(); return } // A pause during resolution must prevent a late autoplay.
+        guard loaded, !ended, playbackError == nil, !desiredPaused else { return }
+        desiredPaused = true
+        performControl { try await $0.pause(true) }
+        onMediaStateChange?()
     }
 
     func togglePlayback() {
-        guard canEditLibrary else { return }
-        if currentSong == nil { if !queue.isEmpty { next() }; return }
-        if playbackError != nil || ended { retryPlayback(); return }
-        guard loaded, !isLoading else { return }
-        let pause = isPlaying
-        performControl { try await $0.pause(pause) }
+        guard canEditLibrary, !systemSleeping else { return }
+        if isLoading { pausePlayback() }
+        else if ended || playbackError != nil || currentSong == nil || desiredPaused { playPlayback() }
+        else { pausePlayback() }
     }
 
     func seek(to value: Double) {
-        guard loaded, duration > 0, value.isFinite else { return }
+        guard playbackCapabilities.contains(.seek), value.isFinite else { return }
         let position = min(duration, max(0, value))
         performControl { try await $0.seek(position) }
     }
@@ -291,6 +321,8 @@ final class MusicLibrary {
     }
 
     func stop() {
+        defer { onMediaStateChange?() }
+        desiredPaused = true; loaded = false
         let needsRecovery = pendingQueueEntry.map { entry in !queue.contains(where: { $0.id == entry.id }) } ?? false
         returnPendingEntry()
         if needsRecovery { scheduleSave() }
@@ -301,6 +333,9 @@ final class MusicLibrary {
     }
 
     func shutdown() {
+        defer { onMediaStateChange?() }
+        desiredPaused = true; loaded = false; ended = true
+        isPlaying = false; isLoading = false; isBuffering = false
         let needsRecovery = pendingQueueEntry.map { entry in !queue.contains(where: { $0.id == entry.id }) } ?? false
         returnPendingEntry()
         if needsRecovery { scheduleSave() }
@@ -309,34 +344,39 @@ final class MusicLibrary {
     }
 
     func next() {
-        guard canEditLibrary else { return }
+        guard canEditLibrary, !systemSleeping else { return }
         guard let entry = queue.first else { stop(); return }
-        playQueueEntry(entry.id)
+        playQueueEntry(entry.id, paused: loaded && !ended && playbackError == nil && desiredPaused)
     }
 
     func previous() {
-        guard canEditLibrary else { return }
+        guard playbackCapabilities.contains(.previous) else { return }
+        let keepPaused = loaded && !ended && playbackError == nil && desiredPaused
         if progress > 3 { seek(to: 0) }
-        else if let song = previousSongs.popLast() { beginPlayback(song) }
+        else if let song = previousSongs.popLast() { beginPlayback(song, paused: keepPaused) }
         else { seek(to: 0) }
     }
 
     func removeQueueEntry(_ id: UUID) {
+        defer { onMediaStateChange?() }
         guard canEditLibrary else { return }
         if pendingQueueEntry?.id == id { pendingQueueEntry = nil }
         queue.removeAll { $0.id == id }; scheduleSave()
     }
     func clearQueue() {
+        defer { onMediaStateChange?() }
         guard canEditLibrary else { return }
         if let pending = pendingQueueEntry, queue.contains(where: { $0.id == pending.id }) { pendingQueueEntry = nil }
         queue.removeAll(); scheduleSave()
     }
     func moveQueueEntries(fromOffsets offsets: IndexSet, toOffset destination: Int) {
+        defer { onMediaStateChange?() }
         guard canEditLibrary else { return }
         queue.move(fromOffsets: offsets, toOffset: destination); scheduleSave()
     }
 
     func moveQueueEntry(_ id: UUID, before target: UUID) {
+        defer { onMediaStateChange?() }
         guard canEditLibrary, id != target,
               let source = queue.firstIndex(where: { $0.id == id }) else { return }
         let entry = queue.remove(at: source)
@@ -373,7 +413,9 @@ final class MusicLibrary {
     private func restoreLibrary() {
         guard let store, !isRestoring, !isClosing else { return }
         dataLoaded = false; isRestoring = true; persistenceError = nil
+        onMediaStateChange?()
         restorationTask = Task { [weak self] in
+            defer { self?.onMediaStateChange?() }
             do {
                 let data = try await store.load()
                 guard let self else { return }
@@ -443,6 +485,7 @@ final class MusicLibrary {
     }
 
     func prepareToQuit() async -> Bool {
+        defer { onMediaStateChange?() }
         guard !isClosing else { return false }
         isClosing = true
         cancelSearch(); stop()
@@ -451,6 +494,64 @@ final class MusicLibrary {
         await store?.close()
         pendingQueueEntry = nil // Teardown only; the durable recovery reference is retained.
         return true
+    }
+
+    var playPauseShowsPause: Bool { isLoading || (loaded && !ended && playbackError == nil && !desiredPaused) }
+
+    var playbackCapabilities: Set<MediaCommandKind> {
+        guard canEditLibrary, !systemSleeping else { return [] }
+        var commands: Set<MediaCommandKind> = []
+        if !isLoading, (currentSong != nil || !queue.isEmpty), (ended || playbackError != nil || !loaded || desiredPaused) { commands.insert(.play) }
+        if isLoading || (loaded && !ended && playbackError == nil && !desiredPaused) { commands.insert(.pause) }
+        if commands.contains(.play) || commands.contains(.pause) { commands.insert(.toggle) }
+        if !queue.isEmpty { commands.insert(.next) }
+        if !previousSongs.isEmpty || (loaded && !ended && duration > 0 && playbackError == nil) { commands.insert(.previous) }
+        if loaded && !ended && playbackError == nil && duration.isFinite && duration > 0 { commands.insert(.seek) }
+        if !ended { commands.insert(.stop) }
+        return commands
+    }
+
+    var mediaPlaybackSnapshot: MediaPlaybackSnapshot {
+        let phase: MediaPlaybackPhase
+        if ended || systemSleeping || isClosing { phase = .stopped }
+        else if playbackError != nil { phase = .failed }
+        else if isLoading { phase = .loading }
+        else if isBuffering && isPlaying { phase = .buffering }
+        else { phase = isPlaying ? .playing : .paused }
+        return MediaPlaybackSnapshot(generation: playbackID, phase: phase, title: currentSong?.title,
+                                     artist: currentSong?.artist, duration: duration > 0 ? duration : nil,
+                                     elapsed: progress, positionRevision: mediaPositionRevision, commands: playbackCapabilities)
+    }
+
+    func handleMediaCommand(_ command: MediaCommand, generation: UUID) {
+        guard generation == playbackID, playbackCapabilities.contains(command.kind) else { return }
+        switch command {
+        case .play: playPlayback()
+        case .pause: pausePlayback()
+        case .toggle: togglePlayback()
+        case .next: next()
+        case .previous: previous()
+        case .stop: stop()
+        case .seek(let position): if position.isFinite, position >= 0 { seek(to: position) }
+        }
+    }
+
+    func handleInterruption(_ reason: PlaybackInterruption) {
+        defer { onMediaStateChange?() }
+        if case .wake = reason { systemSleeping = false; return } // Never resume on wake.
+        let active = !ended && (isLoading || loaded)
+        if case .sleep = reason {
+            systemSleeping = true
+            // Invalidate even a stopped generation: a command queued before sleep must
+            // not become actionable again merely because wake re-enables Play.
+            stop(); player.interrupt()
+            if active { playbackNotice = "Playback stopped for Mac sleep. Press Play to continue." }
+            return
+        }
+        guard active else { return }
+        stop()
+        player.interrupt()
+        playbackNotice = "Audio output changed. Press Play to continue."
     }
 
 }

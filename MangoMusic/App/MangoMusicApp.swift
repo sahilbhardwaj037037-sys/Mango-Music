@@ -31,7 +31,7 @@ private struct MusicRootWindow: View {
     var body: some View {
         MainWindow(library: library)
             .onAppear {
-                delegate.library = library
+                delegate.attach(library)
                 delegate.reopenWindow = { openWindow(id: "main") }
             }
             .tint(.pink)
@@ -43,6 +43,14 @@ private struct MusicRootWindow: View {
 final class MusicApplicationDelegate: NSObject, NSApplicationDelegate {
     var library: MusicLibrary?
     var reopenWindow: (() -> Void)?
+    private var mediaIntegration: SystemMediaIntegration?
+    func attach(_ library: MusicLibrary, integration suppliedIntegration: SystemMediaIntegration? = nil) {
+        guard self.library == nil else { return }
+        self.library = library
+        let integration = suppliedIntegration ?? SystemMediaIntegration(library: library, adapter: NativeSystemMediaAdapter(), lifecycle: NativePlaybackLifecycle())
+        mediaIntegration = integration
+        integration.start()
+    }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let library else { return .terminateNow }
@@ -53,7 +61,7 @@ final class MusicApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         return .terminateLater
     }
-    func applicationWillTerminate(_ notification: Notification) { library?.shutdown() }
+    func applicationWillTerminate(_ notification: Notification) { mediaIntegration?.stop(); library?.shutdown() }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag { reopenWindow?() }
         return true

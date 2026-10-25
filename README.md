@@ -1,8 +1,17 @@
 # Mango Music
 
-A native macOS SwiftUI music player with explicit YouTube search, audio-only HLS streaming through yt-dlp and a persistent mpv process. Checkpoint 4 adds local SQLite persistence for Favorites, History, the manual queue, and current-track metadata, plus UserDefaults settings. The existing interface, branding, icon, and system Light/Dark appearance are preserved.
+A native macOS SwiftUI music player with explicit YouTube search, audio-only HLS streaming through yt-dlp and a persistent mpv process. Checkpoint 4 adds local SQLite persistence for Favorites, History, the manual queue, and current-track metadata, plus UserDefaults settings. Checkpoint 5 adds public native macOS media integration and playback synchronization. The existing interface, branding, icon, and system Light/Dark appearance are preserved.
 
-Automated database/restoration and playback tests pass, as does the native Debug build. **Checkpoint 4's visual/audible quit-and-relaunch acceptance remains unverified.** The user's successful Checkpoint 3 listening/lifecycle checks are historical evidence; they do not establish SQLite restoration. Seeking and Previous were not separately manually confirmed at Checkpoint 3. See [VALIDATION.md](VALIDATION.md).
+Automated persistence, native API, playback, and Debug build checks pass. The user confirmed Checkpoint 4 Favorites/History/Queue/preferences restore after restart without autoplay. **Checkpoint 5 Control Center rendering, physical media keys/headphones, and real sleep/output-change behavior remain manually unverified.** Runtime MediaPlayer readback is verified, and is not evidence of visible Control Center support. See [VALIDATION.md](VALIDATION.md); previous persistence evidence is retained in [VALIDATION_CHECKPOINT4.md](VALIDATION_CHECKPOINT4.md).
+
+## Native macOS media controls
+
+Mango Music uses MediaPlayer's MPNowPlayingInfoCenter and MPRemoteCommandCenter (available on the macOS 14 target), NSWorkspace sleep/wake notifications, and CoreAudio default-output notifications. Only title, artist/channel, known duration, actual mpv elapsed time, and rate/state are published; there is no artwork or media URL. Ordinary elapsed anchors publish at most every five seconds; metadata, state, seeks, and discontinuities update immediately. Stop, completion without another queue item, errors, and quit clear the metadata. macOS may choose another Now Playing app or omit controls; actual Control Center/hardware delivery needs the checklist below.
+
+Supported registered commands are Play, Pause, Toggle Play/Pause, Next, Previous, absolute playback-position seek when duration is known, and Stop. Commands and the bottom player use one capability/controller path; Next uses only your manual queue. Rapid toggles preserve intent until mpv acknowledges each command. Play/Pause are idempotent; Next/Previous preserve a genuine pause. Pause while Loading cancels that attempt, including late resolution. The existing in-app shortcuts remain local to the window. No global key tap or Accessibility permission was added. Compatible keyboard/headphone/USB commands use the same macOS path, without universal-device claims.
+
+The app registers handlers once at application scope and removes its own handlers on teardown. The owned mpv is launched with `--media-controls=no --input-media-keys=no`, so the child does not compete with Mango Music. mpv 0.41.0 is the validated version for these flags. `--stop-screensaver=no` avoids child sleep prevention. Window closure/Dock reopening do not register another integration or player. On system sleep or a changed default audio device, active playback/resolution stops, the owned audio process is terminated, and unstarted queued items are preserved. Sleep also invalidates queued commands and releases an idle owned child; wake never starts audio. Press Play explicitly to resolve a fresh stream and restart from the beginning; a small notice explains the interruption. Switching apps or display-only sleep does not invoke this stop policy. Network/startup errors retain explicit Retry without auto-skipping.
+
 
 ## Running
 
@@ -26,7 +35,7 @@ The Debug database is `~/Library/Application Support/MangoMusic/library.sqlite3`
 
 Opening the app makes no YouTube requests and does not launch mpv. Startup shows Restoring and prevents library edits until a consistent snapshot loads. Read errors offer Retry while preserving existing data. SQLite work runs off the main actor, with prepared/bound SQL, atomic versioned migrations, transactions, foreign keys, and WAL. A revision check rejects stale writes from another instance. Simultaneous editing in multiple instances is unsupported; conflicts require preserving/reconciling edits rather than overwriting another instance.
 
-Only stable YouTube IDs and minimal metadata/references/timestamps/counts are stored. No signed streaming URLs, cookies, credentials, thumbnails, or audio files are persisted. No cloud services/accounts, recommendations, downloads, Core Data, SwiftData, AI, media keys, or Mini Player were added. HLS preference and playback architecture remain as documented in [YOUTUBE_PLAYBACK_DIAGNOSIS.md](YOUTUBE_PLAYBACK_DIAGNOSIS.md).
+Only stable YouTube IDs and minimal metadata/references/timestamps/counts are stored. No signed streaming URLs, cookies, credentials, thumbnails, or audio files are persisted. No cloud services/accounts, recommendations, downloads, Core Data, SwiftData, AI, or Mini Player were added. HLS preference and playback architecture remain as documented in [YOUTUBE_PLAYBACK_DIAGNOSIS.md](YOUTUBE_PLAYBACK_DIAGNOSIS.md).
 
 ## Validation
 
@@ -36,6 +45,8 @@ swift test
 ./Scripts/check.sh
 # Optional installed mpv + generated local audio + temporary SQLite, no network:
 MANGO_MPV_INTEGRATION=1 swift test
+# Optional real macOS API registration/readback (no hardware events or Control Center proof):
+MANGO_NATIVE_MEDIA_INTEGRATION=1 swift test --filter 'SystemMediaTests.native'
 # Separate optional network checks; isolated test settings, no user database:
 MANGO_YOUTUBE_INTEGRATION=1 MANGO_YOUTUBE_DIAGNOSTICS=1 \
   swift test --filter 'MPVIntegrationTests.youtubeManualQueue|YouTubePlaybackIntegrationTests'
@@ -44,6 +55,6 @@ xcodebuild -project MangoMusic.xcodeproj -scheme MangoMusic \
   CODE_SIGNING_ALLOWED=NO build
 ```
 
-Ordinary tests use isolated temporary databases/UserDefaults and no network. The Xcode app scheme has no separate Test action; tests run via SwiftPM. Follow the exact two-relaunch manual checklist in [VALIDATION.md](VALIDATION.md). [ARCHITECTURE.md](ARCHITECTURE.md) covers the schema, migrations, serialized writes, shutdown, and recovery limits.
+Ordinary tests use isolated temporary databases/UserDefaults and no network. The Xcode app scheme has no separate Test action; tests run via SwiftPM. Follow the media-control checklist in [VALIDATION.md](VALIDATION.md); the two-relaunch persistence checklist remains in [VALIDATION_CHECKPOINT4.md](VALIDATION_CHECKPOINT4.md). [ARCHITECTURE.md](ARCHITECTURE.md) covers the schema, migrations, serialized writes, shutdown, and recovery limits.
 
-Checkpoint 3 held library data only in memory; data already lost by quitting that version cannot be recovered. Back up the full MangoMusic Application Support folder with the app fully closed. Do not remove SQLite sidecars while the app is running. Corrupt/unknown/newer databases are never automatically erased or recreated. Automatic repair/backup, conflict merging, database encryption, cloud sync, and Checkpoint 5 are outside this checkpoint. A save transaction is limited to 10,000 favorites/queue/history rows; excessive data produces a visible error rather than silent truncation (normal History retention is 100 distinct songs).
+Checkpoint 3 held library data only in memory; data already lost by quitting that version cannot be recovered. Back up the full MangoMusic Application Support folder with the app fully closed. Do not remove SQLite sidecars while the app is running. Corrupt/unknown/newer databases are never automatically erased or recreated. Automatic repair/backup, conflict merging, database encryption, cloud sync, and Checkpoint 6 packaging are outside this checkpoint. A save transaction is limited to 10,000 favorites/queue/history rows; excessive data produces a visible error rather than silent truncation (normal History retention is 100 distinct songs).

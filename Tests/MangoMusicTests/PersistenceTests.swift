@@ -188,7 +188,7 @@ private final class ControlledPlayer: AudioPlaying {
     var request = UUID()
     var loads = 0
     var shutdowns = 0
-    func load(_ url: URL, request: UUID, volume: Double) async throws {
+    func load(_ url: URL, request: UUID, volume: Double, paused: Bool) async throws {
         self.request = request; loads += 1; onEvent?(request, .loaded)
     }
     func emit(_ event: PlaybackEvent) { onEvent?(request, event) }
@@ -196,6 +196,7 @@ private final class ControlledPlayer: AudioPlaying {
     func seek(_ position: Double) async throws { emit(.position(position)) }
     func volume(_ value: Double) async throws { emit(.volume(value)) }
     func stop() async {}
+    func interrupt() {}
     func shutdown() { shutdowns += 1 }
 }
 private actor SwitchableStore: LibraryPersisting {

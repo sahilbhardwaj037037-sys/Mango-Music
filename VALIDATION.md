@@ -1,109 +1,115 @@
-# Mango Music — Checkpoint 4 validation
+# Mango Music — Checkpoint 5 validation
 
 25 October 2026, Asia/Kolkata.
 
-**Automated persistence/restoration and playback checks pass, the native Debug build passes, and the existing project validation script passes. Manual visual/audible SQLite restoration is not verified.** The user explicitly authorized commit/push if automated validation succeeds and no serious data-loss/migration issue remains. The final report supplies the resulting commit/remote verification; this file does not embed its own commit hash.
+**Implementation, offline tests, real macOS API readback/cleanup, local mpv integration, separate live YouTube tests, native Debug build, and project validation script pass. Control Center rendering, physical keyboard/headphone delivery, and actual sleep/device-change behavior remain manually unverified.** Runtime API acceptance is not a claim that Control Center was observed.
 
-## Git safety before development
+Previous database evidence is preserved in [VALIDATION_CHECKPOINT4.md](VALIDATION_CHECKPOINT4.md); the user's Checkpoint 5 request additionally confirms Favorites, History, Queue and preferences survive restart without autoplay. The Checkpoint 3 HLS investigation remains in [YOUTUBE_PLAYBACK_DIAGNOSIS.md](YOUTUBE_PLAYBACK_DIAGNOSIS.md). Those confirmations do not imply manual validation of the new media integration. Seeking/Previous were not separately manually confirmed in the earlier session.
 
-- Existing project: `~/Developer/MangoMusic`; branch `main`; clean working tree.
-- Existing origin: `https://github.com/sahilbhardwaj037037-sys/Mango-Music.git`.
-- Baseline HEAD: `1dd40b2d10d8f4e3bf5587ad7f6b1def7ca3e3ee` (completed Checkpoint 3).
-- A fresh `git fetch origin` and `git rev-list --left-right --count main...origin/main` returned `0 0`. No preliminary push was needed.
-- No unrelated changes were present. Existing commits, source, branding/icon, and repository were preserved; no reset, force-push, or history rewrite was used.
+## Repository safety
 
-Implementation was initially compiled/tested in an isolated temporary staging copy, then applied to the still-clean existing project. Final checks below ran from the actual repository. Database tests never open the user's real music database. All test models use isolated UserDefaults; the app alone explicitly injects the production database location.
+Before modification, `main`, working tree and index were clean at `ce37903eca9fcd201e2bf5c8ac6cb169847c30b1`. Origin remained `https://github.com/sahilbhardwaj037037-sys/Mango-Music.git`. A fresh fetch and `git rev-list --left-right --count main...origin/main` returned `0 0`; no preliminary push was necessary. No unrelated changes were present. Development was initially compiled/tested in a temporary staging copy, then applied to the still-clean existing repository. Final checks ran from `~/Developer/MangoMusic`.
 
-## Implemented and reviewed
+## Implementation and platform review
 
-`LibraryPersisting`/`LibrarySnapshot` define an injectable async boundary. `SQLiteLibraryStore` serializes SQLite3 off the main actor, binds values through prepared statements, finalizes statements, enables foreign keys/WAL/FULL synchronization, validates loaded data, uses transaction/revision checks, and closes resources. Failed migrations/writes roll back. Corruption, unknown/future schemas, read-only/locked databases, and stale writers produce fixed recoverable errors, without automatic deletion/recreation or raw diagnostic logging.
+- Installed macOS 26.7.1; Swift 6.4/Xcode 27.1; deployment target remains macOS 14. SDK headers declare the chosen MediaPlayer APIs available from macOS 10.12.2.
+- `MPNowPlayingInfoCenter` publishes title, optional artist/channel/duration, actual mpv elapsed time, rate/default rate and audio media type. macOS `playbackState` is set explicitly. Stop/error/exhaustion/quit clears the metadata. Ordinary anchors are limited to one per five seconds; metadata/state/discontinuities and seek anchors publish immediately. No synthetic playback timer or artwork is introduced.
+- `MPRemoteCommandCenter` registers seven owned targets: Play, Pause, Toggle, Next, Previous, absolute position seek, Stop. Availability follows the same model capabilities as the bottom controls. No continuous seek/skip/shuffle/rate/rating/language commands are advertised. No global key event tap, Accessibility permission, iOS AVAudioSession, private MediaRemote API, or hardware-specific Bluetooth implementation is used.
+- Media callbacks cross an unspecified native executor through a lock-protected Sendable gate to the main actor. Playback generations and registration epochs reject stale work; handlers are registered once at app scope, retained when a window closes, and individually removed at teardown. Native command status success acknowledges accepted dispatch; asynchronous IPC can still fail through the existing error UI.
+- Explicit Play/Pause are idempotent, rapid toggles use requested intent until actual mpv acknowledgements, and elapsed time remains actual. Paused navigation sets pause before loading the new file. Seek is disabled on stopped/failed/loading tracks or unknown duration. Pause during resolution cancels late playback. Next during buffering and overlapping old EOF/remote events preserve exactly-once queue transitions.
+- NSWorkspace sleep/wake and CoreAudio default-output observation use application lifetime. Active playback/resolution stops on system sleep/default-output changes; owned mpv is terminated and pending manual items preserved. Wake never loads/resolves/resumes; explicit Play starts a fresh stream from the beginning. Display sleep and focus changes do not call this stop path. Real physical sleep/routing is not claimed tested.
+- mpv 0.41.0 is the tested dependency. New `--media-controls=no --input-media-keys=no` flags prevent its own native control path competing with Mango Music; `--stop-screensaver=no` respects sleep. The child otherwise remains persistent for ordinary controls/navigation. An interruption permits a later replacement only after cleanup.
+- SQLite schema/data policy and the conditional termination flush remain intact. Media state/URLs are not persisted; no personal music database or UserDefaults domain was used in tests. Debug/Release sandbox policies, appearance, icon, branding, and external-tool lookup/HLS selection remain unchanged.
 
-The schema is version 2. A fresh database creates the internal v1 schema and upgrades transactionally; v1 → v2 adds a default play count and recent-history index without losing existing rows. Future/unrecognized schemas are refused. Version 1 is an internal migration fixture/baseline, not a database shipped in Checkpoint 3. See [ARCHITECTURE.md](ARCHITECTURE.md) for table/column details and the complete queue/history rules.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for details and official API references. No packaging/signing/notarization, installer, updater, cloud/account, artwork/download, recommendation, AI, or Checkpoint 6 work was introduced.
 
-Debug storage: `~/Library/Application Support/MangoMusic/library.sqlite3` plus SQLite `-wal`/`-shm` sidecars when needed. New directory/file permissions are 0700/0600. The Application Support API also respects sandboxed container locations. No expiring URLs, cookies, credentials, artwork, or media files are persisted. The Release sandbox setting is unchanged and external-tool Release playback remains unsupported.
+## Final automated results
 
-Favorites persist one song/date-added pair per song. History aggregates one row per song, with latest timestamp/count and a retention limit of 100 distinct songs. A count requires file-loaded plus a positive playback-clock position while playing; failed starts, pause/resume, seek, and same-attempt Retry do not add a count. Explicit replay after Stop/completion is a new play. Queue entry UUIDs preserve intentional duplicates/order. Current unstarted queued selections have a durable recovery reference; recovery preserves them once, and explicit removal/clearing is respected. Started current entries stay consumed; restored current metadata is stopped at zero, without network/player startup.
-
-UserDefaults persist volume/sidebar. Volume validates type/finiteness, clamps to 0–1, and falls back to 0.7. Sidebar validates booleans and falls back to expanded; appearance stays system-adaptive. A save banner/error distinguishes optimistic UI changes from durable saving. Cmd+Q uses AppKit's asynchronous termination handshake: flush latest edits, then terminate mpv/close SQLite. Failed flush cancels quit and preserves edits; no-op quit does not attempt an unnecessary write. Lock waits are bounded and long SQL work is interrupted, though an OS/filesystem stall cannot be strictly bounded.
-
-## Final automated checks
-
-Run from `~/Developer/MangoMusic`:
+From the actual project:
 
 ```sh
-MANGO_MPV_INTEGRATION=1 swift test
+MANGO_MPV_INTEGRATION=1 MANGO_NATIVE_MEDIA_INTEGRATION=1 swift test
 ```
 
-**63 test declarations passed; the two network-only declarations were skipped.** Swift Testing's summary includes skipped declarations and reports “65 tests … passed” across nine suites (1.680 seconds). Parameterized tests include additional cases. Zero failures. This includes real local mpv decoding/control/queue events together with a temporary SQLite save/flush/close/reopen check.
+**82 test declarations passed and two network-only declarations were skipped.** Swift Testing reports 84 total declarations across ten suites, including skips (1.931 seconds). Parameterized tests include additional cases. Zero failures. All prior persistence/search/playback regressions remain, with fixtures updated for initial pause and interruption protocol support.
 
 ```sh
 ./Scripts/check.sh
 ```
 
-**Passed:** Swift package build, offline test suite, `plutil` project lint, and shared-scheme XML validation. The ordinary offline suite has 62 passing declarations and three opt-in integration declarations skipped (65 declarations total). It makes no network calls. The Xcode app scheme still has no separate Test action; tests run through SwiftPM.
+**Passed:** Swift package build, ordinary offline suite, project `plutil` lint, and shared-scheme XML validation. That default suite has **79 passing declarations and five opt-in declarations skipped** (84 declared total): local mpv, two native runtime checks, and two network checks. It requires no physical hardware or network. The Xcode app scheme has no separate Test action; tests run through SwiftPM.
 
-A separate optional live run kept network checks outside the offline suite:
+### What these tests establish
+
+- Metadata mapping, absent/invalid duration/artist/time, exact key set without artwork/URLs, rate/state transitions, stopped/error clearing, throttling and small-seek clock anchors.
+- Play/Pause idempotence, rapid delayed toggles, absolute seeking while paused, paused Next/Previous, explicit Next after failure, buffering Next, stale command/EOF rejection and queue exhaustion exactly once.
+- Pause during resolution rejecting a late result, interruption never starting audio on wake, idle-sleep invalidation of queued pre-sleep Play commands, output-change stopping, registration epochs, disabled commands, background callback delivery on the main actor, owned handler cleanup and repeated simulated window attach.
+- Application delegate integration ownership/termination cleanup through an injected adapter, independent of an actual displayed window. This is a simulated lifecycle check, not a real Dock/window test.
+- Temporary SQLite state survives a sleep interruption while resolving an unstarted queue item; all corruption/migration/rapid-write/flush/close/restoration regressions remain.
+- Real local mpv loads initially paused, seeks while paused, retains its PID for controls, exits the captured owned PID after interruption (OS-level check), can start again explicitly, and saves/reopens a temporary SQLite queue/history. Null output does not establish audible sound.
+
+### Actual native API checks on this configuration
+
+`MANGO_NATIVE_MEDIA_INTEGRATION=1` enables two real, hardware-free runtime checks:
+
+1. Instantiate the real MediaPlayer adapter, register seven targets once despite repeated activation, set/read actual command enabled flags, publish/read actual title/elapsed/playbackState, transition paused, and clear/remove targets. All assertions passed.
+2. Register the real CoreAudio default-output listener, verify it is installed, remove it and check the actual removal OSStatus is success, and repeat teardown safely. All assertions passed. Physical output changes and sleep/wake are not generated by this test.
+
+These checks go beyond compilation while avoiding unsupported UI/hardware event injection. **They do not prove Control Center presentation, system routing to this app, a visible scrubber, lock-screen behavior, physical media keys, or any headphone model.** macOS selects the Now Playing app and which controls/surfaces it exposes; another app may have focus. The implementation is the supported public-API subset pending manual acceptance, not a claim of universally verified system UI/device support.
+
+## Separate live YouTube results
 
 ```sh
 MANGO_YOUTUBE_INTEGRATION=1 MANGO_YOUTUBE_DIAGNOSTICS=1 \
   swift test --filter 'MPVIntegrationTests.youtubeManualQueue|YouTubePlaybackIntegrationTests'
 ```
 
-**2 declarations passed, zero failures/skips (13.597 seconds):** three canonical public videos exercised real HLS load/clock/duration, pause/resume, observed volume, seek, and Stop; the search-based manually populated queue exercised streamed EOF/advancement/exhaustion. History now correctly aggregates repeated plays into one row with an increased count. The live checks ran before the final no-op-quit optimization; that optimization was then covered by the complete offline/local suite and final Debug/script reruns. The HLS resolver/IPC engine themselves are unchanged by Checkpoint 4. All automated audio uses null output; no new audible claim is made.
+**Two declarations passed, zero failures/skips (13.424 seconds).** The parameterized test exercised Rick Astley `dQw4w9WgXcQ`, PSY `9bZkp7q19f0`, and Me at the zoo `jNQXAC9IVRw` through the real HLS resolver/mpv/controller, checking load, clock/duration, pause/resume, observed volume, seek and Stop. The search-based queue test verified streamed near-EOF completion, manual advancement and exhaustion. All use isolated test settings/null output; no new audible result or physical media-command delivery is claimed.
 
-### Coverage added
-
-- Fresh database, directory creation, reopening, unknown duration/Unicode/quoted SQL-bound metadata.
-- Schema versioning/v1 upgrade, retained rows/count initialization, future version refusal, unknown schemas, and failed-migration rollback.
-- Favorite/queue constraints, deduplication, atomic rollback, invalid IDs, and unreferenced metadata cleanup.
-- History ordering/count round trips; no selection/file-loaded-only/failed-start count; no double count on Retry/pause/seek; explicit replay count.
-- Queue identity, intentional duplicates, exact ordering, removal/clear, real restart, pending recovery, no duplicate recovery, and respecting recovered-item removal.
-- Real started queued items stay consumed; stopped current metadata restores with no player load/resolution; duplicate EOF cannot advance twice.
-- Settings restoration, invalid/non-finite/boolean volume, bounds, sidebar type validation.
-- Corrupt bytes preserved, read-only write failures, invalid paths, locked-database timeout/retry, stale-writer conflict, close/reuse rejection.
-- Rapid edits, edits during an in-flight save, immediate quit flushing, visible save/load failure, successful Retry, cancelled quit preserving resources/edits, and quitting without unnecessary writes.
-- Existing search, HLS-format, IPC, cancellation, local audio, and playback regression tests retained; fixtures now emit a real-start clock event and live History assertions use aggregated counts.
-
-## Native build
+## Xcode Debug build
 
 ```sh
 xcodebuild -project MangoMusic.xcodeproj -scheme MangoMusic \
   -configuration Debug -destination 'platform=macOS,arch=arm64' \
-  -derivedDataPath /tmp/MangoMusic-Checkpoint4-Final CODE_SIGNING_ALLOWED=NO build
+  -derivedDataPath /tmp/MangoMusic-Checkpoint5-Final CODE_SIGNING_ALLOWED=NO build
 ```
 
-**BUILD SUCCEEDED**, including a rerun after the final quit-path fix. This verifies native Debug compilation/linking with system SQLite3, not distribution signing or Release external-tool compatibility. The environment remains Swift 6.4/Xcode 27.1, mpv 0.41.0, selected Homebrew yt-dlp 2026.10.21. No new dependency or macOS security change was made.
+**BUILD SUCCEEDED.** MediaPlayer/CoreAudio are linked from the installed Apple SDK. This is a native Debug compilation/link check, not signing/notarization/distribution validation. Release keeps its existing sandbox policy and external-tool limitation.
 
-## Manual status and exact acceptance instructions
+## Manual checklist — all new Checkpoint 5 hardware/system UI items unverified
 
-**Checkpoint 4's visual/audible two-relaunch test was not performed.** Automated temporary-database restart tests do not substitute for that check. No production database was seeded with test songs, and the real app was not launched against personal data as an automated test.
+Use the latest source in Xcode Debug. Stop an older Xcode instance first so there is one Mango Music instance, and pause other media apps to make system routing easier to assess. Do not paste signed media URLs or raw subprocess output when reporting results.
 
-The user previously confirmed audible YouTube playback, Play/Pause/volume, manual additions/Next/automatic advancement, History, uninterrupted window closure, Dock reopening, and Cmd+Q stopping audio at Checkpoint 3. Those results remain historical; they do not claim verification of the new persistence behavior. Seeking and Previous were not separately manually confirmed.
+1. Select MangoMusic → My Mac → Debug and Run. Confirm restored library/preferences, no startup audio, and no new player until explicit Play.
+2. Search a publicly available song, press Return and double-click a result. **Listen** to confirm audible playback and advancing time.
+3. Open macOS Control Center and inspect Now Playing. Confirm Mango Music is the selected app, the title/channel match, duration/time are reasonable, and playback state is correct. If absent/incorrect, record macOS version and observed behavior; a successful build/runtime getter is not success for this check.
+4. Pause/resume from the system controls. Listen for the change and compare the bottom player. Confirm paused time stays fixed and resumes correctly; try a few rapid toggles.
+5. Test the Mac keyboard media Play/Pause key. Depending on keyboard settings, Fn may be needed to send media rather than a standard function key. Record the actual keyboard/settings and result.
+6. Explicitly add at least two songs to Up Next. Test keyboard/system Next and Previous if available. Only explicit queue entries may advance. Test Previous near the start and after several seconds, including while paused; the previous paused track should load silently until Play.
+7. If compatible Bluetooth headphones are available, test their Play/Pause and Next/Previous gestures. Repeat with a wired/USB media controller if available. Record models/gestures; unavailable hardware remains unverified, not failed or universally supported.
+8. Seek with the system scrubber/control **if macOS exposes one**. Compare actual sound/time, test while paused and near EOF. Unknown duration should disable position changes. If no system scrubber is shown, record that UI limitation; in-app seeking remains available when capable.
+9. While music plays, close the main window. Use keyboard/headphone/system commands with the window closed. Audio should continue until a command pauses/stops it; no second handler or player should appear.
+10. Click the Dock icon. Confirm the main window returns with synchronized song, queue, pause state, elapsed time, and controls. Switching focus to another app should not stop playback.
+11. Let a song finish or seek near EOF, and confirm precisely the next manual item starts. An exhausted queue should stop and clear stale Now Playing metadata. Test Stop and error/Retry if practical; no failure may silently skip.
+12. During Loading, press Pause/Toggle to cancel, then wait: a late resolver must not start audio. An explicit later Play can retry. During buffering, test Next to a manually queued track and confirm one transition.
+13. Put the Mac to actual system sleep during playback, then wake. No audio should restart by itself. Press Play explicitly; it restarts with a fresh stream from the beginning. Verify History/remaining queue retain their defined semantics. Display-only sleep should not invoke the system-sleep stop policy.
+14. Change the default output (for example disconnect active headphones or select another output). Active playback should stop with a notice, with no automatic loudspeaker playback. Press Play explicitly after choosing the desired route; record any device-specific issue.
+15. Quit with Cmd+Q. Confirm audible playback stops, Mango Music's Now Playing metadata clears, and the owned mpv process disappears. In Activity Monitor inspect parent/owned PID rather than terminating unrelated mpv instances. IPC resource cleanup is automated-tested; inspect the owned private directory only if needed, without deleting unrelated paths.
+16. Relaunch again without Play. Confirm Favorites/History/remaining queue/preferences and no autoplay. Report which Control Center, keyboard, headphone, seek, background, sleep/output and quit checks were actually performed; unsupported/unavailable controls remain explicitly unverified.
 
-1. Stop any older Xcode run/other Mango Music instance. Open `MangoMusic.xcodeproj`, select MangoMusic → My Mac → Debug, and Run the latest source. Wait for Restoring to finish; do not press Play yet. Confirm no audio starts automatically.
-2. Search for several public songs, press Return, and add at least three Favorites. Confirm hearts agree across Search/Favorites. Add at least three songs to Up Next, including an intentional duplicate if desired, and reorder them. Note the expected order.
-3. Start one queued song and let actual audio/time begin so History is recorded. Leave at least two upcoming entries. Check History; repeated explicit plays should reuse its song row (counts are not separately shown in the UI). Change volume, for example to 25%, and collapse/expand the sidebar to a known state.
-4. Cmd+Q, including immediately after an edit if desired. A normal save should finish and quit without hanging. If a library error occurs, record it; quitting should cancel while unsaved changes remain so Retry can preserve them.
-5. Relaunch. Without pressing Play, verify Favorites, History recency, exact remaining queue order/duplicates, volume, and sidebar state. The current song may display stopped at zero; it must not stream/launch mpv automatically. A queued song that had started should remain consumed; one interrupted before real playback should return once to Up Next.
-6. Remove a Favorite, reorder/remove an upcoming entry, then Cmd+Q and relaunch again. Verify those changes persist. There is no existing Clear History action, so none was added. Optionally Clear Queue and perform a third relaunch to confirm it stays empty.
-7. Optionally interrupt a queued selection during Loading with Stop, quit/relaunch, and press Play for the recovered current item. It should consume that exact queued identity once. Explicit removal of the recovered upcoming item must not resurrect it on quit.
-8. Confirm normal playback, background window closure, Dock reopening, and Cmd+Q cleanup still work in the new build. Seeking/Previous remain separately unconfirmed until you test them; do not infer manual success from automated coverage.
+## Current limitations and scope
 
-## Limits and data handling
+- Actual Control Center visibility and hardware event routing are not yet observed. They depend on macOS Now Playing arbitration, competing apps, UI surface and hardware/firmware. No private API, global key interception, or permission workaround was added to force them.
+- Only absolute position seek is registered, when actual duration is known. Continuous hold-to-seek/skip, rate, shuffle, repeat and feedback commands are disabled. Stop clears metadata, so an explicit restart may need the in-app Play button if macOS no longer routes Play to this app.
+- The conservative sleep/default-output policy stops and restarts from the beginning only on explicit Play, not at a saved offset. It does not prevent sleep or auto-resume on wake. Physical interruption delivery remains manual.
+- Media metadata uses system clock extrapolation between actual anchors. Native command success acknowledges dispatch; subsequent IPC/network errors remain recoverable through the normal UI.
+- SQLite v2/schema, history retention of 100 distinct songs, pending-entry recovery, no startup autoplay, revision conflict safeguards, and multi-instance editing limitations remain. No production database/settings were modified by tests.
+- Existing Debug/Release external-tool policy, icon/branding, layout/colors and system appearance remain; no packaging, signing, installers, updater, cloud/account, downloads/artwork, recommendations, AI, or Checkpoint 6 was started.
 
-- History retains 100 distinct recent songs; evicted counts are not retained. Playback position/back-navigation/search results are not restored. Current playback is never resumed automatically.
-- Checkpoint 3 had only in-memory library collections; data already lost on quitting that version cannot be migrated back. Existing UserDefaults settings are reused.
-- Collection writes cap at 10,000 rows each; oversized/invalid data produces an error rather than silent truncation. Large files/slow or stalled disks can require repair/recovery outside the app.
-- Multiple concurrently editing instances are unsupported. Revision conflicts preserve the committed database/in-memory edits and reject overwrites; there is no automatic merge. Back up/reconcile edits before reopening a stale instance.
-- On read/write error, no automatic reset or destructive repair occurs. Back up the complete Application Support folder with the app fully closed; do not delete live WAL/SHM sidecars. Automated backups, encryption, repair/export UI, and cloud sync are outside scope.
-- No SQLite files, personal listening history, signed streams, credentials, build output, or caches belong in Git. All test rows are synthetic/public integration fixtures in temporary stores, never personal data.
-- No Checkpoint 5, accounts, recommendations, downloads/artwork, Mini Player, media keys, AI, Core Data/SwiftData, new repository, or UI redesign was introduced.
+## Changed files and publication review
 
-## Files added or modified
+Added: `MangoMusic/Services/SystemMediaIntegration.swift`, `MangoMusic/Services/NativeSystemMediaAdapter.swift`, `MangoMusic/Services/NativePlaybackLifecycle.swift`, `Tests/MangoMusicTests/SystemMediaTests.swift`, and archived `VALIDATION_CHECKPOINT4.md`.
 
-- Added: `MangoMusic/Services/LibraryPersistence.swift`, `MangoMusic/Services/SQLiteLibraryStore.swift`, `Tests/MangoMusicTests/PersistenceTests.swift`.
-- Modified production/config: `MangoMusic/App/MangoMusicApp.swift`, `MangoMusic/Models/Song.swift`, `MangoMusic/ViewModels/MusicLibrary.swift`, `MangoMusic/Views/LibraryContent.swift`, `MangoMusic/Views/MainWindow.swift`, `MangoMusic.xcodeproj/project.pbxproj`, `Package.swift`.
-- Modified tests: `Tests/MangoMusicTests/PlaybackTests.swift`, `Tests/MangoMusicTests/MPVIntegrationTests.swift`, `Tests/MangoMusicTests/YouTubePlaybackIntegrationTests.swift`.
-- Updated: `README.md`, `ARCHITECTURE.md`, `VALIDATION.md`.
+Modified: application delegate ownership; model intent/capabilities/interruption/notification paths; engine paused-load/clock-anchor/interruption handling; mpv startup arguments; player disabled/accessibility/notice states; Xcode source membership; local/fixture tests; README/ARCHITECTURE/VALIDATION. Prior HLS diagnosis and database schema documentation are preserved.
 
-Final publication requires a complete staged diff/security/artifact review and the exact commit message `Persist Mango Music library and queue with SQLite`, followed by a normal push to existing `origin/main`, live remote hash comparison, and a clean working tree. These were authorized in the task after successful automated validation; unperformed manual checks are disclosed rather than marked passed.
+The final staged-content review must exclude credentials, cookies, signed streaming URLs, personal history, SQLite files, binaries/build output, caches, temporary logs, and unrelated files. The task authorizes commit `Integrate Mango Music with macOS media controls` and a normal push to existing `origin/main` after successful validation and no major unresolved implementation issue. Manual limits above remain disclosed. The final report records the resulting hash, live remote match, and clean working tree/index; no force-push or history rewrite is permitted.
