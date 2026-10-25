@@ -23,7 +23,7 @@ struct MPVIntegrationTests {
         integer(UInt32(16000)); integer(UInt16(2)); integer(UInt16(16))
         ascii("data"); integer(UInt32(samples * 2)); bytes.append(Data(count: samples * 2))
         try bytes.write(to: file)
-        let connection = MPVConnection(audioOutput: "null"), player = MPVPlaybackEngine(connection: connection)
+        let connection = MPVConnection(executable: PackagedIntegrationTools.mpv, audioOutput: "null"), player = MPVPlaybackEngine(connection: connection)
         defer { player.shutdown() }
         var events: [PlaybackEvent] = []
         player.onEvent = { _, event in events.append(event) }
@@ -46,11 +46,14 @@ struct MPVIntegrationTests {
         try await player.load(file, request: UUID(), volume: 0.4, paused: true)
         try await wait { events.contains(.loaded) && events.contains(.paused(true)) }
         let ownedPID = try #require(connection.owner.processIdentifier)
+        let ownedDirectory = try #require(connection.owner.ownedDirectory)
+        #expect(FileManager.default.fileExists(atPath: ownedDirectory.appendingPathComponent("ipc").path))
         try await player.seek(3)
         try await wait { events.contains(where: { if case .position(let p) = $0 { return p >= 2.9 }; return false }) }
         #expect(connection.owner.processIdentifier == ownedPID)
         player.interrupt()
         #expect(connection.owner.processIdentifier == nil)
+        #expect(!FileManager.default.fileExists(atPath: ownedDirectory.path))
         try await wait { Darwin.kill(ownedPID, 0) == -1 && errno == ESRCH }
         events.removeAll()
         try await player.load(file, request: UUID(), volume: 0.4)
@@ -87,9 +90,9 @@ struct MPVIntegrationTests {
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["MANGO_YOUTUBE_INTEGRATION"] == "1"))
     func youtubeManualQueue() async throws {
-        let connection = MPVConnection(audioOutput: "null")
+        let connection = MPVConnection(executable: PackagedIntegrationTools.mpv, audioOutput: "null")
         let player = MPVPlaybackEngine(connection: connection)
-        let library = MusicLibrary(defaults: UserDefaults(suiteName: "MangoIntegrationTests.\(UUID())")!, player: player)
+        let library = MusicLibrary(defaults: UserDefaults(suiteName: "MangoIntegrationTests.\(UUID())")!, searchService: YouTubeSearchService(executableURL: PackagedIntegrationTools.ytDLP), resolver: PackagedIntegrationTools.resolver, player: player)
         defer { library.shutdown() }
         library.query = "Rick Astley Never Gonna Give You Up official"
         library.search(); await library.searchTask?.value

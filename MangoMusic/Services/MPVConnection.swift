@@ -30,6 +30,10 @@ final class OwnedMPVProcess: @unchecked Sendable {
     private var process: Process?
     private var directory: URL?
     private var closed = false
+    var ownedDirectory: URL? {
+        lock.lock(); defer { lock.unlock() }
+        return directory
+    }
     var processIdentifier: Int32? {
         lock.lock(); defer { lock.unlock() }
         return process.flatMap { $0.isRunning ? $0.processIdentifier : nil }
@@ -93,7 +97,7 @@ actor MPVConnection {
         let socketPath = directory.appendingPathComponent("ipc").path
         let child = Process()
         child.executableURL = tool
-        child.arguments = Self.arguments(socketPath: socketPath, audioOutput: audioOutput)
+        child.arguments = Self.arguments(socketPath: socketPath, audioOutput: audioOutput, scriptingAvailable: !tool.deletingLastPathComponent().path.hasSuffix(".app/Contents/MacOS"))
         child.standardInput = FileHandle.nullDevice
         child.standardOutput = FileHandle.nullDevice
         child.standardError = FileHandle.nullDevice
@@ -151,12 +155,15 @@ actor MPVConnection {
         }
     }
 
-    static func arguments(socketPath: String, audioOutput: String? = nil) -> [String] {
+    static func arguments(socketPath: String, audioOutput: String? = nil, scriptingAvailable: Bool = true) -> [String] {
         var arguments = ["--no-config", "--load-scripts=no", "--ytdl=no", "--idle=yes", "--vid=no",
                            "--audio-display=no", "--force-window=no", "--no-terminal",
                            "--media-controls=no", "--input-media-keys=no", "--stop-screensaver=no",
                            "--cache-on-disk=no", "--save-position-on-quit=no", "--input-default-bindings=no",
                            "--network-timeout=20", "--input-ipc-server=\(socketPath)"]
+        // The bundled minimal mpv has scripting disabled at compile time and does not
+        // register these options. Development mpv retains the explicit runtime opt-outs.
+        if !scriptingAvailable { arguments.removeAll { $0 == "--load-scripts=no" || $0 == "--ytdl=no" } }
         if let audioOutput { arguments.append("--ao=\(audioOutput)") }
         return arguments
     }

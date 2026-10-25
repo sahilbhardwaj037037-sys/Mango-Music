@@ -1,0 +1,139 @@
+{
+  "mpv": {
+    "version": "0.41.0",
+    "url": "https://codeload.github.com/mpv-player/mpv/tar.gz/refs/tags/v0.41.0",
+    "sha256": "ee21092a5ee427353392360929dc64645c54479aefdb5babc5cfbb5fad626209",
+    "file": "mpv.tar.gz"
+  },
+  "ffmpeg": {
+    "version": "8.0.1",
+    "url": "https://ffmpeg.org/releases/ffmpeg-8.0.1.tar.xz",
+    "sha256": "05ee0b03119b45c0bdb4df654b96802e909e0a752f72e4fe3794f487229e5a41",
+    "file": "ffmpeg.tar.xz"
+  },
+  "freetype": {
+    "version": "2.14.1",
+    "url": "https://codeload.github.com/freetype/freetype/tar.gz/refs/tags/VER-2-14-1",
+    "sha256": "44bd69d1f0750603410cfd4f26f1c5523c5a3a087a2dfa8639b757dc7c6677be",
+    "file": "freetype.tar.gz"
+  },
+  "harfbuzz": {
+    "version": "12.2.0",
+    "url": "https://codeload.github.com/harfbuzz/harfbuzz/tar.gz/refs/tags/12.2.0",
+    "sha256": "f63fc519f150465bd0bdafcdf3d0e9c23474f4c474171cd515ea1b3a72c081fb",
+    "file": "harfbuzz.tar.gz"
+  },
+  "fribidi": {
+    "version": "1.0.16",
+    "url": "https://codeload.github.com/fribidi/fribidi/tar.gz/refs/tags/v1.0.16",
+    "sha256": "5a1d187a33daa58fcee2ad77f0eb9d136dd6fa4096239199ba31e850d397e8a8",
+    "file": "fribidi.tar.gz"
+  },
+  "libass": {
+    "version": "0.17.4",
+    "url": "https://codeload.github.com/libass/libass/tar.gz/refs/tags/0.17.4",
+    "sha256": "c287d180d93dc9c9021872574b618ac49027e84cc90e1289318b1ee68bb42251",
+    "file": "libass.tar.gz"
+  },
+  "libplacebo": {
+    "version": "7.349.0",
+    "url": "https://codeload.github.com/haasn/libplacebo/tar.gz/refs/tags/v7.349.0",
+    "sha256": "627e32439a0b3d2b90368ead7e919f470ee7446c87cc0f7841bbe319b23aa8b1",
+    "file": "libplacebo.tar.gz"
+  },
+  "Vulkan-Headers": {
+    "version": "d732b2de303ce505169011d438178191136bfb00",
+    "url": "https://codeload.github.com/KhronosGroup/Vulkan-Headers/tar.gz/d732b2de303ce505169011d438178191136bfb00",
+    "file": "Vulkan-Headers.tar.gz",
+    "sha256": "570f9ae1e65466dbaf5fcab667abd079dd0a61c4ab86cf535efd492bf70a5b74"
+  },
+  "fast_float": {
+    "version": "2b2395f9ac836ffca6404424bcc252bff7aa80e4",
+    "url": "https://codeload.github.com/fastfloat/fast_float/tar.gz/2b2395f9ac836ffca6404424bcc252bff7aa80e4",
+    "file": "fast_float.tar.gz",
+    "sha256": "230d20e4e4ac1f6a9df92c4d746c6ec536cdb0c085bc8635d4b88cead5dc22cb"
+  },
+  "yt-dlp": {
+    "version": "2026.10.21",
+    "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.21/yt-dlp_macos",
+    "file": "yt-dlp_macos",
+    "sha256": "7a6fe71d7d680f1fb0ac18d4949873d77db2859e90017c0f44bd94b23be4ee40",
+    "provenance": "GitHub release asset digest and upstream SHA2-256SUMS, both checked over HTTPS"
+  },
+  "wheel:macholib": {
+    "version": "1.16.4",
+    "file": "wheels/macholib-1.16.4-py2.py3-none-any.whl",
+    "url": "https://files.pythonhosted.org/packages/c7/d1/a9f36f8ecdf0fb7c9b1e78c8d7af12b8c8754e74851ac7b94a8305540fc7/macholib-1.16.4-py2.py3-none-any.whl",
+    "sha256": "da1a3fa8266e30f0ce7e97c6a54eefaae8edd1e5f86f3eb8b95457cae90265ea"
+  },
+  "wheel:pyinstaller": {
+    "version": "6.16.0",
+    "file": "wheels/pyinstaller-6.16.0-py3-none-macosx_10_13_universal2.whl",
+    "url": "https://files.pythonhosted.org/packages/7b/0a/c42ce6e5d3de287f2e9432a074fb209f1fb72a86a72f3903849fdb5e4829/pyinstaller-6.16.0-py3-none-macosx_10_13_universal2.whl",
+    "sha256": "7fd1c785219a87ca747c21fa92f561b0d2926a7edc06d0a0fe37f3736e00bd7a"
+  },
+  "wheel:altgraph": {
+    "version": "0.17.5",
+    "file": "wheels/altgraph-0.17.5-py2.py3-none-any.whl",
+    "url": "https://files.pythonhosted.org/packages/a9/ba/000a1996d4308bc65120167c21241a3b205464a2e0b58deda26ae8ac21d1/altgraph-0.17.5-py2.py3-none-any.whl",
+    "sha256": "f3a22400bce1b0c701683820ac4f3b159cd301acab067c51c653e06961600597"
+  },
+  "wheel:pyinstaller_hooks_contrib": {
+    "version": "2026.9",
+    "file": "wheels/pyinstaller_hooks_contrib-2026.9-py3-none-any.whl",
+    "url": "https://files.pythonhosted.org/packages/93/fe/ded0e20de0580257d97dbabb4db7ab4d96ad8ade7d41149e66308057cf52/pyinstaller_hooks_contrib-2026.9-py3-none-any.whl",
+    "sha256": "fb3e67dd64122561724c48ad0366ac9e8c16e638b63bf7d85de03bf3fdbf06c3"
+  },
+  "wheel:ninja": {
+    "version": "1.13.0",
+    "file": "wheels/ninja-1.13.0-py3-none-macosx_10_9_universal2.whl",
+    "url": "https://files.pythonhosted.org/packages/3c/74/d02409ed2aa865e051b7edda22ad416a39d81a84980f544f8de717cab133/ninja-1.13.0-py3-none-macosx_10_9_universal2.whl",
+    "sha256": "fa2a8bfc62e31b08f83127d1613d10821775a0eb334197154c4d6067b7068ff1"
+  },
+  "wheel:packaging": {
+    "version": "26.3",
+    "file": "wheels/packaging-26.3-py3-none-any.whl",
+    "url": "https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/packaging-26.3-py3-none-any.whl",
+    "sha256": "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c"
+  },
+  "wheel:meson": {
+    "version": "1.9.1",
+    "file": "wheels/meson-1.9.1-py3-none-any.whl",
+    "url": "https://files.pythonhosted.org/packages/9c/07/b48592d325cb86682829f05216e4efb2dc881762b8f1bafb48b57442307a/meson-1.9.1-py3-none-any.whl",
+    "sha256": "f824ab770c041a202f532f69e114c971918ed2daff7ea56583d80642564598d0"
+  },
+  "wheel:setuptools": {
+    "version": "84.2.1",
+    "file": "wheels/setuptools-84.2.1-py3-none-any.whl",
+    "url": "https://files.pythonhosted.org/packages/ef/55/6dc6d6bb953bdfc52519a0059592c52b6e3b8ad51cf8256dffceb55b0610/setuptools-84.2.1-py3-none-any.whl",
+    "sha256": "ca140b45d5325a9478f880e351484f62fef15f336462e449ca0c03c873d589c2"
+  },
+  "wheel:pkgconf": {
+    "version": "2.5.1.post2",
+    "file": "wheels/pkgconf-2.5.1.post2-py3-none-macosx_11_0_arm64.whl",
+    "url": "https://files.pythonhosted.org/packages/6f/ae/ad58f20a9931a11f6f4263c726dd5f8ffbf1c61347c0832459d9f1f02691/pkgconf-2.5.1.post2-py3-none-macosx_11_0_arm64.whl",
+    "sha256": "28f81fd310f58f236867eed80e00062325d6cc626abb17ce754398030899a66f"
+  },
+  "wheel:markupsafe": {
+    "version": "3.0.3",
+    "file": "wheels/markupsafe-3.0.3-cp314-cp314-macosx_11_0_arm64.whl",
+    "url": "https://files.pythonhosted.org/packages/b5/64/7660f8a4a8e53c924d0fa05dc3a55c9cee10bbd82b11c5afb27d44b096ce/markupsafe-3.0.3-cp314-cp314-macosx_11_0_arm64.whl",
+    "sha256": "c47a551199eb8eb2121d4f0f15ae0f923d31350ab9280078d1e5f12b249e0026"
+  },
+  "wheel:jinja2": {
+    "version": "3.1.6",
+    "file": "wheels/jinja2-3.1.6-py3-none-any.whl",
+    "url": "https://files.pythonhosted.org/packages/62/a1/3d680cbfd5f4b8f15abc1d571870c5fc3e594bb582bc3b64ea099db13e56/jinja2-3.1.6-py3-none-any.whl",
+    "sha256": "85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67"
+  },
+  "mpv-coreaudio-fix": {
+    "version": "c5d391adba7bd024954d0df1e0405f5749f4d4ca",
+    "url": "https://github.com/mpv-player/mpv/commit/c5d391adba7bd024954d0df1e0405f5749f4d4ca.patch?full_index=1",
+    "file": "mpv-coreaudio-fix.patch",
+    "sha256": "769b218df220738cc1cf9f81cf696c16518c5dfe56a5ef028e33b22536e0e924",
+    "target": "mpv/audio/out/ao_coreaudio.c",
+    "before_sha256": "ea11a0cf81cd479479faf4534e63f01d4d49c89b9f8b388e5732f4417d2a4b27",
+    "after_sha256": "3bd7f6ee1450bbed53d83b0ddffc3c11dd47c5b586ab6d2fad07137d6865f030",
+    "provenance": "Same upstream hotplug initialization backport and digest as the installed Homebrew mpv formula"
+  }
+}

@@ -1,0 +1,11 @@
+altgraph==0.17.5
+Jinja2==3.1.6
+macholib==1.16.4
+MarkupSafe==3.0.3
+meson==1.9.1
+ninja==1.13.0
+packaging==26.3
+pkgconf==2.5.1.post2
+pyinstaller==6.16.0
+pyinstaller-hooks-contrib==2026.9
+setuptools==84.2.1

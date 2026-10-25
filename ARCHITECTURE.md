@@ -1,4 +1,4 @@
-# Mango Music architecture — Checkpoints 1–5
+# Mango Music architecture — Checkpoints 1–6
 
 ## Native playback
 
@@ -54,7 +54,7 @@ Startup restores collections and current-track metadata asynchronously, while ac
 
 The database tests cover fresh/reopened/versioned/unknown/corrupt/read-only/locked files, transaction rollback, conflicts, binding/constraints, dates/counts, queue identities/order, rapid/in-flight actions, startup without player/network, flush failure, and quit/reopen. Local mpv integration additionally writes and reopens a temporary SQLite library. The user confirmed Checkpoint 4 Favorites/History/Queue/preferences restore after restart without autoplay in the Checkpoint 5 request. That does not verify new native media/hardware behavior. See [VALIDATION.md](VALIDATION.md).
 
-Release sandbox settings are unchanged and external-tool playback remains unsupported there. No accounts, cloud/database server, Core Data/SwiftData, encryption/backup UI, persistence conflict merging, artwork, downloads, or Checkpoint 6 packaging was added. Checkpoint 5 media integration is described below.
+Stock Xcode Release sandbox settings are unchanged; the Checkpoint 6 packaging command explicitly builds a local unsandboxed Release variant as documented below. No accounts, cloud/database server, Core Data/SwiftData, encryption/backup UI, persistence conflict merging, artwork, downloads, was added in Checkpoints 1–5. Checkpoint 5 media integration is described below.
 
 SQLite's [transaction behavior](https://www.sqlite.org/lang_transaction.html), [user_version pragma](https://www.sqlite.org/pragma.html#pragma_user_version), and [busy timeout](https://www.sqlite.org/c3ref/busy_timeout.html) inform the implementation.
 
@@ -87,3 +87,14 @@ Ordinary pause/seek/volume/navigation reuses one persistent process. After an in
 Cmd+Q still uses the SQLite flush/terminateLater handshake. Commands are disabled and metadata clears when closing; a failed flush cancels quit and re-enables applicable commands while preserving unsaved edits. On actual termination the delegate tears down media targets/output/workspace observers, clears metadata, and performs idempotent owned-player cleanup. No schema migration or changed persistence format was needed for Checkpoint 5. Prior schema/queue/privacy documentation above remains applicable.
 
 The implementation follows Apple's [MPNowPlayingInfoCenter](https://developer.apple.com/documentation/mediaplayer/mpnowplayinginfocenter), [macOS playbackState](https://developer.apple.com/documentation/mediaplayer/mpnowplayinginfocenter/playbackstate), and [MPRemoteCommandCenter](https://developer.apple.com/documentation/mediaplayer/mpremotecommandcenter) APIs and the [mpv option reference](https://mpv.io/manual/stable/). Manual proof and test counts are recorded in [VALIDATION.md](VALIDATION.md); archived Checkpoint 4 evidence remains in [VALIDATION_CHECKPOINT4.md](VALIDATION_CHECKPOINT4.md).
+
+
+## Checkpoint 6 — local Release packaging
+
+The packaging boundary is independent of playback state and persistence. Scripts/Packaging explicitly acquires checksum-pinned upstream archives and build-only wheels into ignored .build/packaging, then builds static minimal mpv/FFmpeg and their required dependencies with arm64/macOS 14 flags. mpv links only system libraries/frameworks; no video GPU backend, Lua scripting, or mpv yt-dlp integration is enabled. CoreAudio output and system SecureTransport HTTPS, HLS/fMP4/MPEG-TS and audio decoding/resampling remain. The upstream CoreAudio initialization backport from the development Homebrew formula is retained. libass/libplacebo are upstream mandatory dependencies even for this audio use.
+
+The app's existing Process launch and persistent JSON socket architecture are retained. The package includes a MangoBundledTools Info.plist marker. ToolLocator uses Bundle.main-relative Contents/MacOS paths, checks native executable headers/permissions and rejects symlink helpers; a missing/damaged packaged helper cannot be masked by global installations. Full signature/embedded library integrity is checked by the packaging validator; header inspection is not a complete runtime integrity check. Existing explicit dependency injection remains for tests; the production app does not accept executable override paths from environment variables. Search and stream resolution share lookup. Packaged helper PATH excludes Homebrew and installed Python. Development builds retain external lookup and their scripting opt-out flags; scripting options are omitted only for the compiled-without-scripting packaged mpv.
+
+Standalone upstream yt-dlp contains its own Python, native extensions, TLS/certificate and Python package runtime. All 103 embedded native files are audited for arm64, deployment minimum and bundle/system library resolution. No Deno is bundled; the tested public search/HLS path works without a JavaScript runtime. Upstream format/extractor changes or other videos can still fail and require a reviewed dependency update.
+
+Packaging overrides ENABLE_APP_SANDBOX=NO only for its Release command. This preserves subprocess, Unix IPC and the existing per-user Application Support path while granting ordinary user filesystem/network permissions rather than sandbox confinement. It adds no elevated privilege or entitlement and changes no system protection. Main app and helpers are ad-hoc signed, with the outer bundle signed last; no distribution or App Store compatibility follows. Existing Xcode Debug and stock Release settings remain unchanged. Metadata, icon, bundle identifier, SQLite schema and UserDefaults behavior are retained. See PACKAGING.md and VALIDATION.md for current evidence and manual limits.

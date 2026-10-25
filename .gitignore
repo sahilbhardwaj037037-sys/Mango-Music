@@ -84,3 +84,7 @@ secrets.json
 AGENTS.local.md
 
 # Keep shared Xcode projects, workspaces, schemes and Package.resolved.
+
+# Packaging Python build-tool bytecode
+__pycache__/
+*.pyc

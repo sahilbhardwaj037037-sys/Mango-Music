@@ -2,7 +2,7 @@
 
 A native macOS SwiftUI music player with explicit YouTube search, audio-only HLS streaming through yt-dlp and a persistent mpv process. Checkpoint 4 adds local SQLite persistence for Favorites, History, the manual queue, and current-track metadata, plus UserDefaults settings. Checkpoint 5 adds public native macOS media integration and playback synchronization. The existing interface, branding, icon, and system Light/Dark appearance are preserved.
 
-Automated persistence, native API, playback, and Debug build checks pass. The user confirmed Checkpoint 4 Favorites/History/Queue/preferences restore after restart without autoplay. **The user manually confirmed the latest Xcode launch, audible YouTube playback, Control Center rendering and Play/Pause/Next/Previous, background playback and Control Center commands with the window closed, Dock reopening, and Cmd+Q stopping playback/quitting without visible errors on this Mac.** Physical keyboard media keys, Bluetooth headphone controls, system-level seeking, physical sleep/wake, output-device changes, and process-level orphan checks remain manually unverified. See [VALIDATION.md](VALIDATION.md); previous persistence evidence is retained in [VALIDATION_CHECKPOINT4.md](VALIDATION_CHECKPOINT4.md).
+Automated persistence, native API, playback, and Debug build checks pass. The user confirmed Checkpoint 4 Favorites/History/Queue/preferences restore after restart without autoplay. **For Checkpoint 5, the user manually confirmed the Xcode Debug launch, audible YouTube playback, Control Center rendering and Play/Pause/Next/Previous, background playback and Control Center commands with the window closed, Dock reopening, and Cmd+Q stopping playback/quitting without visible errors on this Mac.** Physical keyboard media keys, Bluetooth headphone controls, system-level seeking, physical sleep/wake, output-device changes, and process-level orphan checks remain manually unverified. See [VALIDATION.md](VALIDATION.md); previous persistence evidence is retained in [VALIDATION_CHECKPOINT4.md](VALIDATION_CHECKPOINT4.md).
 
 ## Native macOS media controls
 
@@ -13,13 +13,19 @@ Supported registered commands are Play, Pause, Toggle Play/Pause, Next, Previous
 The app registers handlers once at application scope and removes its own handlers on teardown. The owned mpv is launched with `--media-controls=no --input-media-keys=no`, so the child does not compete with Mango Music. mpv 0.41.0 is the validated version for these flags. `--stop-screensaver=no` avoids child sleep prevention. Window closure/Dock reopening do not register another integration or player. On system sleep or a changed default audio device, active playback/resolution stops, the owned audio process is terminated, and unstarted queued items are preserved. Sleep also invalidates queued commands and releases an idle owned child; wake never starts audio. Press Play explicitly to resolve a fresh stream and restart from the beginning; a small notice explains the interruption. Switching apps or display-only sleep does not invoke this stop policy. Network/startup errors retain explicit Retry without auto-skipping.
 
 
+## Standalone local app (Checkpoint 6)
+
+The isolated packaging pipeline builds **Mango Music.app** with an arm64 application and minimal mpv, plus verified standalone yt-dlp with its own embedded Python runtime. The tested search/HLS path needs no installed Homebrew/Python/Deno or external dylibs. It targets macOS 14; runtime checks were performed on this Mac, not a macOS 14 machine. The upstream yt-dlp helper retains its universal architecture.
+
+See [PACKAGING.md](PACKAGING.md) for pinned acquisition, offline builds, licenses, ad-hoc signing, sandbox trade-offs, and safe installation/rebuilding. Output is `.build/packaging/output/Mango Music.app`. The packaged Release app still needs your manual audible/Finder/Control Center/persistence verification; earlier Debug passes are preserved separately. Nothing is installed into `/Applications` automatically. This is local-use packaging, without Developer ID signing, notarization, or public-distribution claims.
+
 ## Running
 
 - macOS 14+, Xcode with Swift 6, separately installed executable `yt-dlp` and `mpv`.
 - Open `MangoMusic.xcodeproj`, select MangoMusic → My Mac → Debug, and Run.
 - Runtime lookup checks Homebrew/local installation paths, Python framework versions for yt-dlp, and absolute PATH entries. The app never installs or updates tools.
 - SQLite3 is the macOS system library, linked directly by SwiftPM/Xcode. There are no third-party Swift database dependencies.
-- Debug App Sandbox remains disabled for external tools. Release remains sandboxed; external-tool streaming in Release is unsupported and not distribution-ready.
+- Debug remains unchanged with external development tools. Stock Xcode Release remains sandboxed. The local packaging script builds a separate Release configuration with App Sandbox disabled for bundled helpers and Unix IPC; see the security and signing limits in [PACKAGING.md](PACKAGING.md).
 
 Type a song/artist and press Return. Search is explicit and limited to ten results. Single-click selects; double-click, Return, or context Play plays. Play Next prepends to Up Next; Add to Queue appends. Playback controls, buffering/error/Retry, queue reorder/remove/clear, Favorites, and History retain the native layout. Closing the window leaves playback running; the Dock reopens it. Cmd+Q flushes library changes before quitting and stopping owned processes.
 

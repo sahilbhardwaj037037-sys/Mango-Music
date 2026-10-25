@@ -11,10 +11,10 @@ enum SearchError: Error, LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .invalidQuery: "Enter 1–200 characters without control characters."
-        case .missingExecutable: "yt-dlp was not found. Install it in a supported location, then retry."
+        case .missingExecutable: "yt-dlp is missing or damaged. Rebuild the packaged app, or check your development tool installation."
         case .malformedOutput: "YouTube returned an unreadable search response. Please retry."
         case .processFailed: "YouTube search failed. Check your connection and yt-dlp installation, then retry."
-        case .launchFailed: "yt-dlp could not start. Check its executable permissions and Python installation."
+        case .launchFailed: "yt-dlp could not start. Check the app bundle or your development tool installation."
         case .timedOut: "YouTube search timed out. Check your connection, then retry."
         case .outputTooLarge: "The search response exceeded the safety limit. Please retry."
         }
@@ -41,11 +41,9 @@ struct YouTubeSearchService: SongSearching {
     func search(query: String) async throws -> [Song] {
         let query = try SearchQuery.validate(query)
         try Task.checkCancellation()
-        let candidates = executableURL.map { [$0] }
-            ?? Self.supportedPaths.map { URL(fileURLWithPath: $0) }
-        guard let executable = candidates.first(where: {
-            FileManager.default.isExecutableFile(atPath: $0.path)
-        }) else { throw SearchError.missingExecutable }
+        let executable: URL
+        do { executable = try ToolLocator.locate("yt-dlp", override: executableURL) }
+        catch { throw SearchError.missingExecutable }
         let output = try await runner.run(executable: executable, arguments: Self.arguments(for: query))
         try Task.checkCancellation()
         guard output.status == 0 else { throw SearchError.processFailed(output.status) }

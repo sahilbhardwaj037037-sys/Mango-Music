@@ -66,7 +66,7 @@ private final class ProcessExecution: @unchecked Sendable {
         child.standardError = stderr
         child.currentDirectoryURL = FileManager.default.temporaryDirectory
         // Do not inherit shell customizations, Python injection variables or credentials.
-        child.environment = ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+        child.environment = ["PATH": ToolLocator.runtimePath(for: executable),
                              "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
                              "LANG": "en_US.UTF-8", "PYTHONIOENCODING": "utf-8",
                              "PYTHONNOUSERSITE": "1"]

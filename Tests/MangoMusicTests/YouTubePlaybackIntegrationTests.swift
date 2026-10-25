@@ -8,9 +8,9 @@ struct YouTubePlaybackIntegrationTests {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["MANGO_YOUTUBE_DIAGNOSTICS"] == "1"),
           arguments: ["dQw4w9WgXcQ", "9bZkp7q19f0", "jNQXAC9IVRw"])
     func publicVideoPlayback(_ videoID: String) async throws {
-        let connection = MPVConnection(audioOutput: "null")
+        let connection = MPVConnection(executable: PackagedIntegrationTools.mpv, audioOutput: "null")
         let player = MPVPlaybackEngine(connection: connection)
-        let library = MusicLibrary(defaults: UserDefaults(suiteName: "MangoIntegrationTests.\(UUID())")!, player: player)
+        let library = MusicLibrary(defaults: UserDefaults(suiteName: "MangoIntegrationTests.\(UUID())")!, searchService: YouTubeSearchService(executableURL: PackagedIntegrationTools.ytDLP), resolver: PackagedIntegrationTools.resolver, player: player)
         defer { library.shutdown() }
         let song = Song(id: "youtube:\(videoID)", title: "Public integration fixture", artist: "YouTube", duration: 0, durationKnown: false)
         library.play(song)

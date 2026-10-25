@@ -5,7 +5,7 @@ enum PlaybackError: Error, LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .invalidVideo: "This song has an invalid YouTube identifier. Choose another result."
-        case .missingTool(let tool): "\(tool) was not found. Install it in a supported location and retry."
+        case .missingTool(let tool): "\(tool) is missing or damaged. Rebuild the packaged app, or check your development tool installation."
         case .resolution: "Audio could not be resolved. Check your connection and yt-dlp version. The video may be unavailable or restricted."
         case .invalidStream: "YouTube returned an invalid audio stream. Retry to request a fresh stream."
         case .connection: "Could not connect to the audio player. Retry to restart it."
@@ -18,12 +18,33 @@ enum PlaybackError: Error, LocalizedError, Equatable {
 }
 
 enum ToolLocator {
-    static func locate(_ name: String, override: URL? = nil) throws -> URL {
+    static func locate(_ name: String, override: URL? = nil,
+                       bundleURL: URL = Bundle.main.bundleURL,
+                       requiresBundledTools: Bool = Bundle.main.object(forInfoDictionaryKey: "MangoBundledTools") as? Bool == true) throws -> URL {
+        if override == nil, requiresBundledTools {
+            let tool = bundleURL.appendingPathComponent("Contents/MacOS").appendingPathComponent(name)
+            let values = try? tool.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            guard values?.isRegularFile == true, values?.isSymbolicLink != true,
+                  FileManager.default.isExecutableFile(atPath: tool.path),
+                  let handle = try? FileHandle(forReadingFrom: tool) else { throw PlaybackError.missingTool(name) }
+            defer { try? handle.close() }
+            // Helpers must be native Mach-O files (including a verified universal executable), not scripts.
+            let magic = (try? handle.read(upToCount: 32)) ?? Data()
+            guard magic.count == 32, [Data([0xcf, 0xfa, 0xed, 0xfe]), Data([0xca, 0xfe, 0xba, 0xbe]),
+                   Data([0xca, 0xfe, 0xba, 0xbf])].contains(magic.prefix(4)) else { throw PlaybackError.missingTool(name) }
+            return tool
+        }
         let paths = override.map { [$0.path] } ?? candidates(name)
         guard let path = paths.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
             throw PlaybackError.missingTool(name)
         }
         return URL(fileURLWithPath: path)
+    }
+    static func runtimePath(for executable: URL) -> String {
+        if executable.deletingLastPathComponent().path.hasSuffix(".app/Contents/MacOS") {
+            return executable.deletingLastPathComponent().path + ":/usr/bin:/bin"
+        }
+        return "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
     }
     static func candidates(_ name: String) -> [String] {
         var paths = ["/opt/homebrew/bin/\(name)", "/usr/local/bin/\(name)"]
