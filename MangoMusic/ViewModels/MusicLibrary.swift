@@ -16,9 +16,9 @@ final class MusicLibrary {
     @ObservationIgnored private(set) var searchTask: Task<Void, Never>?
     private var searchID = UUID()
     private var knownSongs = Dictionary(uniqueKeysWithValues: Song.samples.map { ($0.id, $0) })
-    var queue: [QueueEntry] = []
-    var favoriteIDs: Set<String> = []
-    var history: [HistoryEntry] = []
+    private(set) var queue: [QueueEntry] = []
+    private(set) var favoriteIDs: Set<String> = []
+    private(set) var history: [HistoryEntry] = []
     var currentSong: Song?
     private(set) var isPlaying = false
     private(set) var isLoading = false
@@ -30,10 +30,26 @@ final class MusicLibrary {
     @ObservationIgnored private(set) var playbackTask: Task<Void, Never>?
     @ObservationIgnored private var controlTask: Task<Void, Never>?
     private var playbackID = UUID()
+    private var pendingQueueEntry: QueueEntry?
+    private var historyRecorded = false
+    @ObservationIgnored private let store: (any LibraryPersisting)?
+    @ObservationIgnored private(set) var restorationTask: Task<Void, Never>?
+    @ObservationIgnored private(set) var persistenceTask: Task<Void, Never>?
+    private var favoriteDates: [String: Date] = [:]
+    private var storeRevision = 0
+    private var editVersion = 0
+    private var dataLoaded = true
+    private(set) var isRestoring = false
+    private(set) var hasUnsavedChanges = false
+    private(set) var persistenceError: String?
+    private(set) var isClosing = false
+    var canEditLibrary: Bool { dataLoaded && !isClosing }
     private var ended = true
     private var loaded = false
     var progress: TimeInterval = 0
-    var volume: Double = 0.7
+    private(set) var volume: Double = 0.7 {
+        didSet { defaults.set(volume, forKey: "volume") }
+    }
     var searchFocusRequest = 0
     private let defaults: UserDefaults
     private var previousSongs: [Song] = []
@@ -42,13 +58,21 @@ final class MusicLibrary {
     }
 
     init(defaults: UserDefaults = .standard, searchService: any SongSearching = YouTubeSearchService(),
-         resolver: any AudioStreamResolving = AudioStreamResolver(), player: (any AudioPlaying)? = nil) {
+         resolver: any AudioStreamResolving = AudioStreamResolver(), player: (any AudioPlaying)? = nil,
+         store: (any LibraryPersisting)? = nil) {
+        self.store = store
         self.resolver = resolver
         self.player = player ?? MPVPlaybackEngine()
         self.searchService = searchService
         self.defaults = defaults
-        sidebarVisible = defaults.object(forKey: "sidebarVisible") as? Bool ?? true
+        sidebarVisible = (defaults.object(forKey: "sidebarVisible") as? NSNumber)
+            .flatMap { CFGetTypeID($0) == CFBooleanGetTypeID() ? $0.boolValue : nil } ?? true
+        if let stored = defaults.object(forKey: "volume") as? NSNumber,
+           CFGetTypeID(stored) != CFBooleanGetTypeID(), stored.doubleValue.isFinite {
+            volume = min(1, max(0, stored.doubleValue))
+        } else { volume = 0.7 }
         self.player.onEvent = { [weak self] id, event in self?.receive(id, event) }
+        if store != nil { restoreLibrary() }
     }
 
     var favorites: [Song] {
@@ -121,20 +145,34 @@ final class MusicLibrary {
     }
 
     func toggleFavorite(_ song: Song) {
+        guard canEditLibrary else { return }
         knownSongs[song.id] = song
-        if !favoriteIDs.insert(song.id).inserted { favoriteIDs.remove(song.id) }
+        if !favoriteIDs.insert(song.id).inserted { favoriteIDs.remove(song.id); favoriteDates.removeValue(forKey: song.id) }
+        else { favoriteDates[song.id] = .now }
+        scheduleSave()
     }
 
-    func enqueue(_ song: Song) { queue.append(QueueEntry(song: song)) }
+    func enqueue(_ song: Song) {
+        guard canEditLibrary else { return }
+        queue.append(QueueEntry(song: song)); scheduleSave()
+    }
 
     func play(_ song: Song) {
+        guard canEditLibrary else { return }
         if let currentSong { previousSongs.append(currentSong) }
         beginPlayback(song)
     }
 
-    func playNext(_ song: Song) { queue.insert(QueueEntry(song: song), at: 0) }
+    func playNext(_ song: Song) {
+        guard canEditLibrary else { return }
+        queue.insert(QueueEntry(song: song), at: 0); scheduleSave()
+    }
 
-    private func beginPlayback(_ song: Song) {
+    private func beginPlayback(_ song: Song, queueEntry: QueueEntry? = nil, retry: Bool = false) {
+        returnPendingEntry()
+        if let queueEntry { queue.removeAll { $0.id == queueEntry.id } }
+        pendingQueueEntry = queueEntry
+        if !retry { historyRecorded = false }
         let previousTask = playbackTask
         let previousControl = controlTask
         previousTask?.cancel()
@@ -150,6 +188,7 @@ final class MusicLibrary {
         playbackError = nil
         ended = false
         loaded = false
+        scheduleSave()
         let resolver = resolver, player = player
         playbackTask = Task { [weak self] in
             // Serialize transitions, including a cancelled mpv startup, to retain one owned process.
@@ -176,16 +215,23 @@ final class MusicLibrary {
         case .loaded:
             guard !loaded else { return }
             loaded = true; isLoading = false; isPlaying = true
-            if let currentSong {
-                history.insert(HistoryEntry(song: currentSong, playedAt: .now), at: 0)
-                if history.count > 100 { history.removeLast(history.count - 100) }
+        case .position(let value):
+            guard value.isFinite, value >= 0 else { return }
+            progress = value
+            if loaded, isPlaying, value > 0, !historyRecorded { recordStartedPlayback() }
+        case .duration(let value):
+            guard value.isFinite, value > 0, value <= 31_536_000 else { return }
+            duration = value
+            if let song = currentSong, !song.durationKnown || abs(song.duration - value) > 0.1 {
+                currentSong = Song(id: song.id, title: song.title, artist: song.artist, duration: value)
+                knownSongs[song.id] = currentSong
+                scheduleSave()
             }
-        case .position(let value): progress = value
-        case .duration(let value): duration = value
         case .paused(let value): if loaded { isPlaying = !value }
         case .buffering(let value): isBuffering = value
         case .volume(let value): volume = min(1, max(0, value))
         case .ended:
+            guard historyRecorded else { fail("Playback ended before audio started. Retry or choose another song."); return }
             ended = true; isPlaying = false; isLoading = false; isBuffering = false
             if !queue.isEmpty { next() }
         case .failure(let message): fail(message)
@@ -200,16 +246,19 @@ final class MusicLibrary {
     }
 
     func retryPlayback() {
-        guard let currentSong else { return }
-        beginPlayback(currentSong)
+        guard canEditLibrary, let currentSong else { return }
+        beginPlayback(currentSong, queueEntry: pendingQueueEntry, retry: !ended)
     }
 
     func playQueueEntry(_ id: UUID) {
-        guard let index = queue.firstIndex(where: { $0.id == id }) else { return }
-        play(queue.remove(at: index).song)
+        guard canEditLibrary, let index = queue.firstIndex(where: { $0.id == id }) else { return }
+        let entry = queue.remove(at: index)
+        if let currentSong { previousSongs.append(currentSong) }
+        beginPlayback(entry.song, queueEntry: entry)
     }
 
     func togglePlayback() {
+        guard canEditLibrary else { return }
         if currentSong == nil { if !queue.isEmpty { next() }; return }
         if playbackError != nil || ended { retryPlayback(); return }
         guard loaded, !isLoading else { return }
@@ -242,6 +291,9 @@ final class MusicLibrary {
     }
 
     func stop() {
+        let needsRecovery = pendingQueueEntry.map { entry in !queue.contains(where: { $0.id == entry.id }) } ?? false
+        returnPendingEntry()
+        if needsRecovery { scheduleSave() }
         playbackID = UUID(); playbackTask?.cancel(); controlTask?.cancel()
         isPlaying = false; isLoading = false; isBuffering = false; ended = true
         let previous = playbackTask, player = player
@@ -249,31 +301,156 @@ final class MusicLibrary {
     }
 
     func shutdown() {
+        let needsRecovery = pendingQueueEntry.map { entry in !queue.contains(where: { $0.id == entry.id }) } ?? false
+        returnPendingEntry()
+        if needsRecovery { scheduleSave() }
         cancelSearch(); playbackID = UUID(); playbackTask?.cancel(); controlTask?.cancel()
         player.shutdown()
     }
 
     func next() {
-        guard !queue.isEmpty else { stop(); return }
-        play(queue.removeFirst().song)
+        guard canEditLibrary else { return }
+        guard let entry = queue.first else { stop(); return }
+        playQueueEntry(entry.id)
     }
 
     func previous() {
+        guard canEditLibrary else { return }
         if progress > 3 { seek(to: 0) }
         else if let song = previousSongs.popLast() { beginPlayback(song) }
         else { seek(to: 0) }
     }
 
-    func removeQueueEntry(_ id: UUID) { queue.removeAll { $0.id == id } }
+    func removeQueueEntry(_ id: UUID) {
+        guard canEditLibrary else { return }
+        if pendingQueueEntry?.id == id { pendingQueueEntry = nil }
+        queue.removeAll { $0.id == id }; scheduleSave()
+    }
+    func clearQueue() {
+        guard canEditLibrary else { return }
+        if let pending = pendingQueueEntry, queue.contains(where: { $0.id == pending.id }) { pendingQueueEntry = nil }
+        queue.removeAll(); scheduleSave()
+    }
+    func moveQueueEntries(fromOffsets offsets: IndexSet, toOffset destination: Int) {
+        guard canEditLibrary else { return }
+        queue.move(fromOffsets: offsets, toOffset: destination); scheduleSave()
+    }
 
     func moveQueueEntry(_ id: UUID, before target: UUID) {
-        guard id != target,
+        guard canEditLibrary, id != target,
               let source = queue.firstIndex(where: { $0.id == id }) else { return }
         let entry = queue.remove(at: source)
         guard let destination = queue.firstIndex(where: { $0.id == target }) else {
             queue.insert(entry, at: min(source, queue.count)); return
         }
         queue.insert(entry, at: destination)
+        scheduleSave()
+    }
+
+    private func returnPendingEntry() {
+        if let entry = pendingQueueEntry, !queue.contains(where: { $0.id == entry.id }) { queue.insert(entry, at: 0) }
+        // Retain the reference while stopped so Play consumes this exact restored queue entry.
+    }
+
+    private func recordStartedPlayback() {
+        guard let song = currentSong else { return }
+        historyRecorded = true
+        pendingQueueEntry = nil
+        let old = history.first(where: { $0.song.id == song.id })
+        history.removeAll { $0.song.id == song.id }
+        history.insert(HistoryEntry(id: old?.id ?? UUID(), song: song, playedAt: .now,
+                                   playCount: min(old?.playCount ?? 0, Int.max - 1) + 1), at: 0)
+        if history.count > 100 { history.removeLast(history.count - 100) }
+        scheduleSave()
+    }
+
+    private func snapshot() -> LibrarySnapshot {
+        LibrarySnapshot(favorites: favoriteIDs.sorted().compactMap { id in
+            knownSongs[id].map { FavoriteRecord(song: $0, addedAt: favoriteDates[id] ?? .now) }
+        }, history: history, queue: queue, currentSong: currentSong, pendingQueueEntry: pendingQueueEntry, revision: storeRevision)
+    }
+
+    private func restoreLibrary() {
+        guard let store, !isRestoring, !isClosing else { return }
+        dataLoaded = false; isRestoring = true; persistenceError = nil
+        restorationTask = Task { [weak self] in
+            do {
+                let data = try await store.load()
+                guard let self else { return }
+                self.favoriteIDs = Set(data.favorites.map { $0.song.id })
+                self.favoriteDates = Dictionary(uniqueKeysWithValues: data.favorites.map { ($0.song.id, $0.addedAt) })
+                self.history = data.history
+                self.queue = data.queue
+                self.currentSong = data.currentSong
+                self.pendingQueueEntry = data.pendingQueueEntry
+                self.storeRevision = data.revision
+                let songs = data.favorites.map(\.song) + data.history.map(\.song) + data.queue.map(\.song)
+                for song in songs { self.knownSongs[song.id] = song }
+                if let song = data.currentSong { self.knownSongs[song.id] = song }
+                // Restoration only populates metadata. No engine or resolver call is made.
+                self.isRestoring = false; self.dataLoaded = true
+                if let pending = data.pendingQueueEntry {
+                    let needsRecovery = !self.queue.contains(where: { $0.id == pending.id })
+                    self.returnPendingEntry()
+                    if needsRecovery { self.scheduleSave() }
+                }
+            } catch {
+                guard let self else { return }
+                self.isRestoring = false
+                self.persistenceError = (error as? PersistenceError)?.localizedDescription ?? PersistenceError.unavailable.localizedDescription
+            }
+        }
+    }
+
+    private func scheduleSave() {
+        guard store != nil, dataLoaded else { return }
+        editVersion += 1; hasUnsavedChanges = true
+        if persistenceTask == nil { startWriter() }
+    }
+
+    private func startWriter() {
+        guard let store else { return }
+        persistenceTask = Task { [weak self] in
+            while let self, self.hasUnsavedChanges {
+                let version = self.editVersion, data = self.snapshot()
+                do {
+                    let revision = try await store.save(data, expecting: self.storeRevision)
+                    self.storeRevision = revision
+                    if self.editVersion == version { self.hasUnsavedChanges = false }
+                    self.persistenceError = nil
+                } catch {
+                    self.persistenceError = (error as? PersistenceError)?.localizedDescription ?? PersistenceError.writeFailed.localizedDescription
+                    self.persistenceTask = nil
+                    return
+                }
+            }
+            self?.persistenceTask = nil
+        }
+    }
+
+    func retryPersistence() {
+        guard !isClosing else { return }
+        if !dataLoaded { restoreLibrary() }
+        else if hasUnsavedChanges, persistenceTask == nil { startWriter() }
+    }
+
+    func flushPersistence() async -> Bool {
+        await restorationTask?.value
+        guard dataLoaded else { return true } // No editable state exists to flush after a failed load.
+        if hasUnsavedChanges, persistenceTask == nil { startWriter() }
+        await persistenceTask?.value
+        return !hasUnsavedChanges
+    }
+
+    func prepareToQuit() async -> Bool {
+        guard !isClosing else { return false }
+        isClosing = true
+        cancelSearch(); stop()
+        guard await flushPersistence() else { isClosing = false; return false }
+        player.shutdown()
+        await store?.close()
+        pendingQueueEntry = nil // Teardown only; the durable recovery reference is retained.
+        return true
     }
 
 }

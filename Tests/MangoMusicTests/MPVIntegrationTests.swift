@@ -41,7 +41,12 @@ struct MPVIntegrationTests {
         await player.stop()
         #expect(!events.contains(.ended))
         // Exercise production manual queue transitions against real mpv events using local audio.
-        let library = MusicLibrary(resolver: LocalResolver(url: file), player: player)
+        let databaseDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("MangoLocalIntegration-\(UUID())")
+        let databaseURL = databaseDirectory.appendingPathComponent("library.sqlite3")
+        defer { try? FileManager.default.removeItem(at: databaseDirectory) }
+        let store = SQLiteLibraryStore(url: databaseURL)
+        let library = MusicLibrary(defaults: UserDefaults(suiteName: "MangoIntegrationTests.\(UUID())")!, resolver: LocalResolver(url: file), player: player, store: store)
+        await library.restorationTask?.value
         library.enqueue(testSong(0)); library.enqueue(testSong(1)); library.next()
         await library.playbackTask?.value
         try await wait { library.isPlaying && library.duration > 0 }
@@ -53,16 +58,21 @@ struct MPVIntegrationTests {
         try await wait { !library.isPlaying }
         #expect(library.history.count == 2); #expect(library.queue.isEmpty)
         try await Task.sleep(for: .milliseconds(100))
-        #expect(!library.isPlaying); #expect(library.currentSong == testSong(1))
-        library.shutdown()
+        #expect(!library.isPlaying); #expect(library.currentSong?.id == testSong(1).id)
+        #expect(await library.prepareToQuit())
         await connection.shutdown()
+        let reopened = SQLiteLibraryStore(url: databaseURL)
+        let restored = try await reopened.load()
+        #expect(restored.queue.isEmpty); #expect(restored.history.count == 2)
+        #expect(restored.currentSong?.id == testSong(1).id)
+        await reopened.close()
     }
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["MANGO_YOUTUBE_INTEGRATION"] == "1"))
     func youtubeManualQueue() async throws {
         let connection = MPVConnection(audioOutput: "null")
         let player = MPVPlaybackEngine(connection: connection)
-        let library = MusicLibrary(player: player)
+        let library = MusicLibrary(defaults: UserDefaults(suiteName: "MangoIntegrationTests.\(UUID())")!, player: player)
         defer { library.shutdown() }
         library.query = "Rick Astley Never Gonna Give You Up official"
         library.search(); await library.searchTask?.value
@@ -84,7 +94,7 @@ struct MPVIntegrationTests {
         guard library.playbackError == nil else { return }
         library.seek(to: max(0, library.duration - 1))
         try await wait(seconds: 20) { !library.isPlaying }
-        #expect(library.queue.isEmpty); #expect(library.history.count == 2)
+        #expect(library.queue.isEmpty); #expect(library.history.count == 1); #expect(library.history.first?.playCount == 2)
         await connection.shutdown()
     }
 

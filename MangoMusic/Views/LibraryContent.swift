@@ -14,7 +14,7 @@ struct LibraryContent: View {
                 Text(library.destination.rawValue).font(.largeTitle.bold())
                 Spacer()
                 if library.destination == .queue && !library.queue.isEmpty {
-                    Button("Clear Queue", role: .destructive) { library.queue.removeAll() }
+                    Button("Clear Queue", role: .destructive) { library.clearQueue() }
                         .buttonStyle(.borderless)
                 }
             }
@@ -182,7 +182,7 @@ struct LibraryContent: View {
                             Button("Remove from Queue", role: .destructive) { library.removeQueueEntry(entry.id) }
                         }
                     }
-                    .onMove { library.queue.move(fromOffsets: $0, toOffset: $1) }
+                    .onMove { library.moveQueueEntries(fromOffsets: $0, toOffset: $1) }
                 }
                 .listStyle(.inset).focused($listFocused)
                 .onKeyPress(.return) {

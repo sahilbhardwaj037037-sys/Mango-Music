@@ -1,48 +1,49 @@
 # Mango Music
 
-A native macOS SwiftUI music player with user-initiated YouTube search, in-memory favorites/history/manual queue, and a persistent mpv audio engine. Mango Music branding and the existing icon are preserved.
+A native macOS SwiftUI music player with explicit YouTube search, audio-only HLS streaming through yt-dlp and a persistent mpv process. Checkpoint 4 adds local SQLite persistence for Favorites, History, the manual queue, and current-track metadata, plus UserDefaults settings. The existing interface, branding, icon, and system Light/Dark appearance are preserved.
 
-Checkpoint 3 implements real audio streaming through yt-dlp and persistent mpv, preferring audio-only HLS to address direct-stream HTTP 403 failures. All 42 tests pass with local and live integrations enabled, and the Xcode Debug build passes. The user personally confirmed audible YouTube playback, Play/Pause, volume, manual queue/Next, automatic queue advancement, History, window closure/Dock reopening, and Cmd+Q stopping playback. **Seeking and Previous have automated coverage but are not manually verified.** See [VALIDATION.md](VALIDATION.md) and [YOUTUBE_PLAYBACK_DIAGNOSIS.md](YOUTUBE_PLAYBACK_DIAGNOSIS.md).
+Automated database/restoration and playback tests pass, as does the native Debug build. **Checkpoint 4's visual/audible quit-and-relaunch acceptance remains unverified.** The user's successful Checkpoint 3 listening/lifecycle checks are historical evidence; they do not establish SQLite restoration. Seeking and Previous were not separately manually confirmed at Checkpoint 3. See [VALIDATION.md](VALIDATION.md).
 
-## Requirements and running
+## Running
 
-- macOS 14 or later, Xcode with Swift 6.
-- Executable `yt-dlp` and `mpv` installed separately. The app never installs or updates them.
-- Runtime lookup checks `/opt/homebrew/bin`, `/usr/local/bin`, Python framework version directories for yt-dlp, and absolute directories in the inherited PATH. Finder/Dock PATH may differ from Terminal. Candidates must be executable; tests can inject explicit URLs.
-- Open `MangoMusic.xcodeproj`, choose MangoMusic → My Mac → Debug, and Run.
-- Debug keeps App Sandbox disabled for external tools. Release retains `ENABLE_APP_SANDBOX = YES`; external tools/IPC are not supported by that configuration. Release is not ready for distribution.
+- macOS 14+, Xcode with Swift 6, separately installed executable `yt-dlp` and `mpv`.
+- Open `MangoMusic.xcodeproj`, select MangoMusic → My Mac → Debug, and Run.
+- Runtime lookup checks Homebrew/local installation paths, Python framework versions for yt-dlp, and absolute PATH entries. The app never installs or updates tools.
+- SQLite3 is the macOS system library, linked directly by SwiftPM/Xcode. There are no third-party Swift database dependencies.
+- Debug App Sandbox remains disabled for external tools. Release remains sandboxed; external-tool streaming in Release is unsupported and not distribution-ready.
 
-## Search and playback
+Type a song/artist and press Return. Search is explicit and limited to ten results. Single-click selects; double-click, Return, or context Play plays. Play Next prepends to Up Next; Add to Queue appends. Playback controls, buffering/error/Retry, queue reorder/remove/clear, Favorites, and History retain the native layout. Closing the window leaves playback running; the Dock reopens it. Cmd+Q flushes library changes before quitting and stopping owned processes.
 
-Type a song or artist and press Return. Search is explicit, asynchronous, cancellable, and limited to ten results. Single-click selects; double-click, Return, or context-menu Play starts playback. Play Next inserts at the front of Up Next; Add to Queue appends. Hearts store favorites for this session.
+## Local data and restoration
 
-The bottom player offers Play/Pause, Stop, Previous, Next, elapsed time, actual duration, seeking, and volume. Loading/buffering appear in the toolbar; failures appear above the seek slider with Retry. Seeking is disabled until mpv reports a duration. Retry resolves a fresh URL and never skips to another song. Play after Stop or completion restarts the displayed song. Loading must finish before Pause is available; Stop and choosing another song cancel it.
+The Debug database is `~/Library/Application Support/MangoMusic/library.sqlite3`. SQLite may create `-wal` and `-shm` sidecars alongside it. The directory/file are created with private permissions. Sandboxed configurations use their per-user Application Support location. No database belongs in the Git repository.
 
-Only explicitly added songs enter Up Next. Direct playback leaves Up Next intact. Next consumes its first item; successful EOF does the same. An empty queue stops. Previous seeks to zero after three seconds; otherwise it pops the prior selected track from navigation history, without re-enqueueing the track being left. That history includes track selections whose playback failed; the visible History list records only tracks mpv successfully loaded. Playing a queue entry removes only that entry. Duplicate entries have independent identities. Reorder, remove, and Clear Queue affect upcoming tracks; clearing does not stop the current song.
+- **Favorites:** one row per song, with its date added. Hearts update immediately in this window; a Saving banner stays visible until the serialized transaction commits. A failed write shows an unsaved-changes error with Retry. Quit is cancelled if unsaved edits cannot be flushed.
+- **History:** one row per song, ordered by most recent play with a play count. A play counts only after mpv reports file-loaded and the first positive playback-clock position while playing. Selection, queuing, failed starts, pause/resume, and seeking do not add a count. Retry within the same attempt does not double-count; explicit replay after Stop/completion counts again. The 100 most recent distinct songs are retained; counts for evicted rows are not retained. There is no Clear History action.
+- **Queue:** only explicitly added entries are saved, including their independent UUIDs and exact order. Intentional duplicates remain independent. Direct play leaves upcoming entries intact. A selected queued item is recoverable until the first playback-clock event; if interrupted/failed before starting, it returns to Up Next on Stop, switching away, quit, or restoration. Started entries stay consumed. An exhausted queue stops. Errors never silently skip.
+- **Current track:** title/artist/known duration restore in a stopped, non-streaming state at zero elapsed time. Started tracks are not re-enqueued. Pressing Play for a recovered unstarted queued selection consumes that same queue identity once; removing it from Up Next respects the removal. Playback begins only on a user action and resolves a fresh URL. Position, pause/buffering/error state, and navigation-back history are not restored.
+- **Settings:** volume and sidebar visibility use UserDefaults. Volume restores only finite numeric values, clamped to 0–1; missing/invalid values use 0.7. Sidebar accepts stored booleans, otherwise expanded. Appearance stays system-adaptive.
 
-Closing the window leaves the app and playback running. Clicking the Dock icon reopens the single main window. Cmd+Q cancels search/resolution, terminates the owned mpv child, and removes its private socket directory. No login item or background service is installed.
+Opening the app makes no YouTube requests and does not launch mpv. Startup shows Restoring and prevents library edits until a consistent snapshot loads. Read errors offer Retry while preserving existing data. SQLite work runs off the main actor, with prepared/bound SQL, atomic versioned migrations, transactions, foreign keys, and WAL. A revision check rejects stale writes from another instance. Simultaneous editing in multiple instances is unsupported; conflicts require preserving/reconciling edits rather than overwriting another instance.
 
-## Architecture and privacy
+Only stable YouTube IDs and minimal metadata/references/timestamps/counts are stored. No signed streaming URLs, cookies, credentials, thumbnails, or audio files are persisted. No cloud services/accounts, recommendations, downloads, Core Data, SwiftData, AI, media keys, or Mini Player were added. HLS preference and playback architecture remain as documented in [YOUTUBE_PLAYBACK_DIAGNOSIS.md](YOUTUBE_PLAYBACK_DIAGNOSIS.md).
 
-SwiftUI → `MusicLibrary` → `AudioStreamResolving` / `AudioPlaying`. The production implementations are `AudioStreamResolver` and `MPVPlaybackEngine`; `MPVConnection` owns JSON IPC. See [ARCHITECTURE.md](ARCHITECTURE.md).
-
-Resolution uses Swift Process with literal argument arrays, `bestaudio[protocol^=m3u8]/bestaudio`, `--get-url`, disabled configuration/plugins/cache, no playlist, and no media download. IDs are strictly validated. HLS is preferred for the public formats that failed direct playback; the fallback remains audio-only. Some videos without accessible HLS can still fail and show Retry. Signed HTTPS URLs remain in memory, are never logged, and are freshly resolved for every playback attempt. No cookies, authentication, DRM bypass, artwork, thumbnails, subtitles, paid API, browser, Electron, WebView, AI service, or SQLite are used. mpv buffers audio in memory; disk caching and saving playback positions are explicitly disabled.
-
-## Tests
+## Validation
 
 ```sh
+swift build
 swift test
-# Optional: installed mpv, generated local PCM audio, null output, no network:
-MANGO_MPV_INTEGRATION=1 swift test --filter MPVIntegrationTests.localAudioIPC
-# Optional: live YouTube search, resolution, and a two-entry queue:
-MANGO_YOUTUBE_INTEGRATION=1 swift test --filter MPVIntegrationTests.youtubeManualQueue
-# Optional: three canonical public videos with observed pause/resume, seek, volume:
-MANGO_YOUTUBE_DIAGNOSTICS=1 swift test --filter YouTubePlaybackIntegrationTests
+./Scripts/check.sh
+# Optional installed mpv + generated local audio + temporary SQLite, no network:
+MANGO_MPV_INTEGRATION=1 swift test
+# Separate optional network checks; isolated test settings, no user database:
+MANGO_YOUTUBE_INTEGRATION=1 MANGO_YOUTUBE_DIAGNOSTICS=1 \
+  swift test --filter 'MPVIntegrationTests.youtubeManualQueue|YouTubePlaybackIntegrationTests'
 xcodebuild -project MangoMusic.xcodeproj -scheme MangoMusic \
   -configuration Debug -destination 'platform=macOS,arch=arm64' \
   CODE_SIGNING_ALLOWED=NO build
 ```
 
-Ordinary tests use fixtures and require no network or installed media tools. The existing Xcode app scheme has no Test action/test target; run the test suite with SwiftPM. `CODE_SIGNING_ALLOWED=NO` builds verify compilation, not signing or distribution.
+Ordinary tests use isolated temporary databases/UserDefaults and no network. The Xcode app scheme has no separate Test action; tests run via SwiftPM. Follow the exact two-relaunch manual checklist in [VALIDATION.md](VALIDATION.md). [ARCHITECTURE.md](ARCHITECTURE.md) covers the schema, migrations, serialized writes, shutdown, and recovery limits.
 
-Queue, favorites, and history are intentionally in memory. Sidebar visibility remains a UserDefaults preference. Media keys, Mini Player, and persistence are outside this checkpoint.
+Checkpoint 3 held library data only in memory; data already lost by quitting that version cannot be recovered. Back up the full MangoMusic Application Support folder with the app fully closed. Do not remove SQLite sidecars while the app is running. Corrupt/unknown/newer databases are never automatically erased or recreated. Automatic repair/backup, conflict merging, database encryption, cloud sync, and Checkpoint 5 are outside this checkpoint. A save transaction is limited to 10,000 favorites/queue/history rows; excessive data produces a visible error rather than silent truncation (normal History retention is 100 distinct songs).

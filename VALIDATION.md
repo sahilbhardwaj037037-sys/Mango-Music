@@ -1,126 +1,109 @@
-# Mango Music — Checkpoint 3 validation
+# Mango Music — Checkpoint 4 validation
 
-Date: 25 October 2026 (Asia/Kolkata).
+25 October 2026, Asia/Kolkata.
 
-**Status: Checkpoint 3 validated in Xcode Debug. The final rerun passed all 42 automated tests (including local mpv and live YouTube integrations) and the native Debug build. The user personally confirmed audible playback and the specific manual checks recorded below, and authorized commit/push after successful final validation. Seeking and Previous are not manually verified.** See [YOUTUBE_PLAYBACK_DIAGNOSIS.md](YOUTUBE_PLAYBACK_DIAGNOSIS.md) for the HLS fix.
+**Automated persistence/restoration and playback checks pass, the native Debug build passes, and the existing project validation script passes. Manual visual/audible SQLite restoration is not verified.** The user explicitly authorized commit/push if automated validation succeeds and no serious data-loss/migration issue remains. The final report supplies the resulting commit/remote verification; this file does not embed its own commit hash.
 
-## Initial Git safety checkpoint
+## Git safety before development
 
-The supplied workspace (`~/Developer/LocalMusic`) contains an old workspace stub; the existing project is `~/Developer/MangoMusic`. Before changing application code:
-
-- Working tree clean, branch `main`.
+- Existing project: `~/Developer/MangoMusic`; branch `main`; clean working tree.
 - Existing origin: `https://github.com/sahilbhardwaj037037-sys/Mango-Music.git`.
-- `git fetch origin` succeeded; `git rev-list --left-right --count main...origin/main` returned `0 0`.
-- Local and remote HEAD: `5f1ef7d117eb8daeabaf09e0e35f2b9e5e0a2c08` (`Implement real YouTube search with yt-dlp`). No preliminary push necessary.
-- No unrelated work was committed/discarded, no repository was created, and no history was rewritten.
+- Baseline HEAD: `1dd40b2d10d8f4e3bf5587ad7f6b1def7ca3e3ee` (completed Checkpoint 3).
+- A fresh `git fetch origin` and `git rev-list --left-right --count main...origin/main` returned `0 0`. No preliminary push was needed.
+- No unrelated changes were present. Existing commits, source, branding/icon, and repository were preserved; no reset, force-push, or history rewrite was used.
 
-Changes were compiled initially in a temporary staging copy, then applied to the existing project. Final build/tests ran from the existing project. All original uncommitted Checkpoint 3 work was preserved. The user subsequently verified Debug playback and explicitly authorized normal publication after final review, successful test/build reruns, and staged-content inspection. A fresh pre-publication fetch again returned `0 0` for `main...origin/main`.
+Implementation was initially compiled/tested in an isolated temporary staging copy, then applied to the still-clean existing project. Final checks below ran from the actual repository. Database tests never open the user's real music database. All test models use isolated UserDefaults; the app alone explicitly injects the production database location.
 
-## Environment
+## Implemented and reviewed
 
-- Swift 6.4, Xcode 27.1; My Mac arm64.
-- mpv 0.41.0 at `/opt/homebrew/bin/mpv`.
-- Homebrew yt-dlp 2026.10.21; Python-framework yt-dlp 2026.08.19 also present at the previous 3.14 hint.
-- Runtime lookup validates executable candidates rather than relying exclusively on those machine paths.
-- Debug sandbox remains disabled; Release sandbox remains enabled and unchanged. Release external-tool playback is unsupported and not distribution-ready.
+`LibraryPersisting`/`LibrarySnapshot` define an injectable async boundary. `SQLiteLibraryStore` serializes SQLite3 off the main actor, binds values through prepared statements, finalizes statements, enables foreign keys/WAL/FULL synchronization, validates loaded data, uses transaction/revision checks, and closes resources. Failed migrations/writes roll back. Corruption, unknown/future schemas, read-only/locked databases, and stale writers produce fixed recoverable errors, without automatic deletion/recreation or raw diagnostic logging.
 
-## Implemented
+The schema is version 2. A fresh database creates the internal v1 schema and upgrades transactionally; v1 → v2 adds a default play count and recent-history index without losing existing rows. Future/unrecognized schemas are refused. Version 1 is an internal migration fixture/baseline, not a database shipped in Checkpoint 3. See [ARCHITECTURE.md](ARCHITECTURE.md) for table/column details and the complete queue/history rules.
 
-Dedicated asynchronous audio-only resolution with bounded Process execution, strict IDs, validated HTTPS output, cancellation, sanitized errors, fresh streams per attempt, and no downloads/cookies. Persistent audio-only mpv, private Unix socket, request/response IDs, ordered event delivery, startup/command/load deadlines, pause/resume/stop/seek/volume, actual position/duration, buffering, EOF, explicit Retry, and owned process cleanup.
+Debug storage: `~/Library/Application Support/MangoMusic/library.sqlite3` plus SQLite `-wal`/`-shm` sidecars when needed. New directory/file permissions are 0700/0600. The Application Support API also respects sandboxed container locations. No expiring URLs, cookies, credentials, artwork, or media files are persisted. The Release sandbox setting is unchanged and external-tool Release playback remains unsupported.
 
-Search selection and existing layout/branding/icon remain. Search stays explicit and limited to ten. Context actions include Play, Play Next, Add to Queue. The timer and mock labels were removed. The bottom bar uses real player state, shows errors/Retry, and adds Stop. Queue ordering/removal/clear remain; EOF consumes only manual entries and errors never skip. Dock reopening and quit cleanup are implemented in an application delegate. [ARCHITECTURE.md](ARCHITECTURE.md) specifies exact queue and process behavior.
+Favorites persist one song/date-added pair per song. History aggregates one row per song, with latest timestamp/count and a retention limit of 100 distinct songs. A count requires file-loaded plus a positive playback-clock position while playing; failed starts, pause/resume, seek, and same-attempt Retry do not add a count. Explicit replay after Stop/completion is a new play. Queue entry UUIDs preserve intentional duplicates/order. Current unstarted queued selections have a durable recovery reference; recovery preserves them once, and explicit removal/clearing is respected. Started current entries stay consumed; restored current metadata is stopped at zero, without network/player startup.
 
-## Automated results
+UserDefaults persist volume/sidebar. Volume validates type/finiteness, clamps to 0–1, and falls back to 0.7. Sidebar validates booleans and falls back to expanded; appearance stays system-adaptive. A save banner/error distinguishes optimistic UI changes from durable saving. Cmd+Q uses AppKit's asynchronous termination handshake: flush latest edits, then terminate mpv/close SQLite. Failed flush cancels quit and preserves edits; no-op quit does not attempt an unnecessary write. Lock waits are bounded and long SQL work is interrupted, though an OS/filesystem stall cannot be strictly bounded.
 
-Final command, from `~/Developer/MangoMusic`:
+## Final automated checks
+
+Run from `~/Developer/MangoMusic`:
 
 ```sh
-MANGO_MPV_INTEGRATION=1 MANGO_YOUTUBE_INTEGRATION=1 MANGO_YOUTUBE_DIAGNOSTICS=1 swift test
+MANGO_MPV_INTEGRATION=1 swift test
 ```
 
-**42 test declarations passed across seven suites in 14.345 seconds; zero failures and zero skips.** All previous 39 passing tests are retained, along with the previously failing live queue test, a new format-selection regression, and a new live test parameterized over three public IDs. Parameterized tests include additional cases. The new live test asserts actual mpv volume events, pause/resume, duration/position, seeking, and stop. Ordinary `swift test` remains offline; integration tests require explicit opt-in.
+**63 test declarations passed; the two network-only declarations were skipped.** Swift Testing's summary includes skipped declarations and reports “65 tests … passed” across nine suites (1.680 seconds). Parameterized tests include additional cases. Zero failures. This includes real local mpv decoding/control/queue events together with a temporary SQLite save/flush/close/reopen check.
 
-Coverage includes valid/invalid IDs; valid/malformed URL output; missing tools; resolution success/nonzero/timeout; malformed IPC; startup/connection failure; process termination and repeated cleanup; sealed ownership preventing post-quit launch; loading/pause/resume/seek/volume/buffering; EOF/empty queue; manual ordering/duplicates/removal; Next/Previous; failure/Retry without skip; cancellation and a resolver deliberately returning a stale result after cancellation. Existing search/runner tests cover metadata handling, ten-result limits, literal arguments, pipe bounds, real subprocess timeout/cancellation, and stale search results.
+```sh
+./Scripts/check.sh
+```
 
-The optional real-mpv test generates temporary PCM audio, sends it through the production engine with null output, and verifies load, clock/duration, pause/resume, seek, volume, EOF once, process reuse, explicit stop, and a two-entry queue that stops at exhaustion. The fixture and private socket resources are cleaned up. This verifies decoding/IPC/state/queue behavior, **not audible sound**.
+**Passed:** Swift package build, offline test suite, `plutil` project lint, and shared-scheme XML validation. The ordinary offline suite has 62 passing declarations and three opt-in integration declarations skipped (65 declarations total). It makes no network calls. The Xcode app scheme still has no separate Test action; tests run through SwiftPM.
 
-## Xcode results
+A separate optional live run kept network checks outside the offline suite:
+
+```sh
+MANGO_YOUTUBE_INTEGRATION=1 MANGO_YOUTUBE_DIAGNOSTICS=1 \
+  swift test --filter 'MPVIntegrationTests.youtubeManualQueue|YouTubePlaybackIntegrationTests'
+```
+
+**2 declarations passed, zero failures/skips (13.597 seconds):** three canonical public videos exercised real HLS load/clock/duration, pause/resume, observed volume, seek, and Stop; the search-based manually populated queue exercised streamed EOF/advancement/exhaustion. History now correctly aggregates repeated plays into one row with an increased count. The live checks ran before the final no-op-quit optimization; that optimization was then covered by the complete offline/local suite and final Debug/script reruns. The HLS resolver/IPC engine themselves are unchanged by Checkpoint 4. All automated audio uses null output; no new audible claim is made.
+
+### Coverage added
+
+- Fresh database, directory creation, reopening, unknown duration/Unicode/quoted SQL-bound metadata.
+- Schema versioning/v1 upgrade, retained rows/count initialization, future version refusal, unknown schemas, and failed-migration rollback.
+- Favorite/queue constraints, deduplication, atomic rollback, invalid IDs, and unreferenced metadata cleanup.
+- History ordering/count round trips; no selection/file-loaded-only/failed-start count; no double count on Retry/pause/seek; explicit replay count.
+- Queue identity, intentional duplicates, exact ordering, removal/clear, real restart, pending recovery, no duplicate recovery, and respecting recovered-item removal.
+- Real started queued items stay consumed; stopped current metadata restores with no player load/resolution; duplicate EOF cannot advance twice.
+- Settings restoration, invalid/non-finite/boolean volume, bounds, sidebar type validation.
+- Corrupt bytes preserved, read-only write failures, invalid paths, locked-database timeout/retry, stale-writer conflict, close/reuse rejection.
+- Rapid edits, edits during an in-flight save, immediate quit flushing, visible save/load failure, successful Retry, cancelled quit preserving resources/edits, and quitting without unnecessary writes.
+- Existing search, HLS-format, IPC, cancellation, local audio, and playback regression tests retained; fixtures now emit a real-start clock event and live History assertions use aggregated counts.
+
+## Native build
 
 ```sh
 xcodebuild -project MangoMusic.xcodeproj -scheme MangoMusic \
   -configuration Debug -destination 'platform=macOS,arch=arm64' \
-  -derivedDataPath /tmp/MangoMusic-Checkpoint3-Final CODE_SIGNING_ALLOWED=NO build
+  -derivedDataPath /tmp/MangoMusic-Checkpoint4-Final CODE_SIGNING_ALLOWED=NO build
 ```
 
-**BUILD SUCCEEDED** from the final existing project. This is a native Debug build; it does not validate distribution signing. Xcode's project test action was attempted and reports: `Scheme MangoMusic is not currently configured for the test action.` The repository's tests are SwiftPM tests; no separate Xcode test target exists.
+**BUILD SUCCEEDED**, including a rerun after the final quit-path fix. This verifies native Debug compilation/linking with system SQLite3, not distribution signing or Release external-tool compatibility. The environment remains Swift 6.4/Xcode 27.1, mpv 0.41.0, selected Homebrew yt-dlp 2026.10.21. No new dependency or macOS security change was made.
 
-Build/IPC operations needed execution outside the agent's restricted tool sandbox. This did not change the app's sandbox settings, Gatekeeper, SIP, or system security configuration.
+## Manual status and exact acceptance instructions
 
-A separate newly launched instance of the final Debug app remained running after launch and exited after a graceful NSRunningApplication termination request. The already-running user instance was preserved. This is a launch/quit smoke check without active playback; it does not verify close-window/Dock behavior or Cmd+Q during streaming.
+**Checkpoint 4's visual/audible two-relaunch test was not performed.** Automated temporary-database restart tests do not substitute for that check. No production database was seeded with test songs, and the real app was not launched against personal data as an automated test.
 
-## Real YouTube integration — now passing
+The user previously confirmed audible YouTube playback, Play/Pause/volume, manual additions/Next/automatic advancement, History, uninterrupted window closure, Dock reopening, and Cmd+Q stopping audio at Checkpoint 3. Those results remain historical; they do not claim verification of the new persistence behavior. Seeking and Previous were not separately manually confirmed.
 
-The initial direct-audio pipeline failed with HTTP 403 after successful resolution. The supported selector `bestaudio[protocol^=m3u8]/bestaudio` now prefers advertised audio-only HLS; the production resolver still uses one temporary HTTPS URL, the same bounded Process runner, and the same persistent mpv/IPC engine. No headers, client overrides, credentials, extra retry attempts, or dependencies were needed.
+1. Stop any older Xcode run/other Mango Music instance. Open `MangoMusic.xcodeproj`, select MangoMusic → My Mac → Debug, and Run the latest source. Wait for Restoring to finish; do not press Play yet. Confirm no audio starts automatically.
+2. Search for several public songs, press Return, and add at least three Favorites. Confirm hearts agree across Search/Favorites. Add at least three songs to Up Next, including an intentional duplicate if desired, and reorder them. Note the expected order.
+3. Start one queued song and let actual audio/time begin so History is recorded. Leave at least two upcoming entries. Check History; repeated explicit plays should reuse its song row (counts are not separately shown in the UI). Change volume, for example to 25%, and collapse/expand the sidebar to a known state.
+4. Cmd+Q, including immediately after an edit if desired. A normal save should finish and quit without hanging. If a library error occurs, record it; quitting should cancel while unsaved changes remain so Retry can preserve them.
+5. Relaunch. Without pressing Play, verify Favorites, History recency, exact remaining queue order/duplicates, volume, and sidebar state. The current song may display stopped at zero; it must not stream/launch mpv automatically. A queued song that had started should remain consumed; one interrupted before real playback should return once to Up Next.
+6. Remove a Favorite, reorder/remove an upcoming entry, then Cmd+Q and relaunch again. Verify those changes persist. There is no existing Clear History action, so none was added. Optionally Clear Queue and perform a third relaunch to confirm it stays empty.
+7. Optionally interrupt a queued selection during Loading with Stop, quit/relaunch, and press Play for the recovered current item. It should consume that exact queued identity once. Explicit removal of the recovered upcoming item must not resurrect it on quit.
+8. Confirm normal playback, background window closure, Dock reopening, and Cmd+Q cleanup still work in the new build. Seeking/Previous remain separately unconfirmed until you test them; do not infer manual success from automated coverage.
 
-Before the fix, direct mpv/yt-dlp and separately resolved direct URLs failed on Rick Astley and PSY; the short public clip loaded. Headers did not reliably resolve music-video failures. Fresh URL expiry was checked. HLS then played all three; repeated HLS checks on both music videos worked without extra headers. Full comparisons, installed versions, and remaining uncertainty about YouTube's internal rejection policy are in [YOUTUBE_PLAYBACK_DIAGNOSIS.md](YOUTUBE_PLAYBACK_DIAGNOSIS.md).
+## Limits and data handling
 
-The final live tests pass through the actual MusicLibrary → AudioStreamResolver → persistent MPVPlaybackEngine pipeline. They verify Rick Astley (`dQw4w9WgXcQ`), PSY (`9bZkp7q19f0`), and Me at the zoo (`jNQXAC9IVRw`) load, advance the playback clock, report duration, pause/resume, acknowledge volume, seek, and stop. The original search-based two-entry queue test also passes: it seeks near EOF to exercise real streamed completion, automatic manual-queue advancement, and stopping at exhaustion. It does not wait through two full songs from beginning to end.
-
-Automated playback uses null audio output; audible verification comes from the user’s personal Xcode Debug test, not those automated events. HLS-less or restricted videos can still fail and show Retry. Debug sandbox is unchanged; Release remains unsupported for external-tool playback.
-
-## User-reported manual verification
-
-On 25 October 2026, the user personally tested Mango Music in Xcode Debug and reported these checks successful:
-
-| Check | Manual result |
-| --- | --- |
-| Real YouTube audio | Plays audibly |
-| Play/Pause | Works |
-| Volume | Works |
-| Explicitly added songs | Appear in the queue |
-| Next | Plays the queued song |
-| Track completion | Starts the next explicitly queued song automatically |
-| Closing the main window | Does not interrupt music |
-| Reopening from the Dock | Restores the window |
-| History | Played songs appear |
-| Cmd+Q | Quits the app and stops playback |
-| Seeking | **Not separately confirmed manually**; automated local/live tests pass |
-| Previous | **Not separately confirmed manually**; automated model tests pass |
-
-These are the user's reported results, not an independently performed audible check by the agent. No specific video IDs, additional keyboard/accessibility checks, or process/socket inspection were reported in the manual session. Queue exhaustion is covered by automated tests, not separately claimed as manually verified. Cmd+Q stopping sound is confirmed; separate inspection of the owned mpv PID and socket directory is not claimed as a manual check.
-
-## Remaining manual checks
-
-Seeking and Previous remain optional follow-up acceptance checks; their absence does not override the user's explicit authorization to publish this checkpoint. To check seeking, play a song, move the slider forward/backward, and compare audible position with elapsed time. To check Previous, press after more than three seconds to restart, then near the start to navigate to the prior selected track. Broader accessibility/keyboard review, queue reorder/remove/clear, error/Retry interactions, and an Activity Monitor/socket inspection were not included in the user's reported session.
-
-## Final review and publication
-
-The final review covered the entire Checkpoint 3 diff and new files: bounded async resolution and strict IDs, HLS preference/audio-only fallback, persistent mpv/private IPC, request/event correlation, cancellation and stale requests, manual queue/history/control behavior, process shutdown, native window lifecycle, Xcode source membership, and tests/documentation. No blocking issue was found. The Release sandbox configuration and branding/icon remain unchanged.
-
-The user approved a normal commit with message `Implement real audio playback with mpv and HLS streaming` and push to the existing `origin/main`, conditional on passing validation and staged-content inspection. No force-push or history rewrite is authorized. The staged-content check includes every staged file and searches for secrets, signed media URLs, cookies/credentials, binaries, generated build/cache/user state, and unrelated files. Only the reviewed source, project configuration, tests, and four documents belong to this checkpoint. The final response records the resulting commit hash and remote/clean-tree verification, avoiding a self-referential commit hash in this file.
-
-No SQLite/Checkpoint 4, AI service, artwork, Mini Player, media keys, new repository, or system security change was introduced. Release is not distribution-ready.
+- History retains 100 distinct recent songs; evicted counts are not retained. Playback position/back-navigation/search results are not restored. Current playback is never resumed automatically.
+- Checkpoint 3 had only in-memory library collections; data already lost on quitting that version cannot be migrated back. Existing UserDefaults settings are reused.
+- Collection writes cap at 10,000 rows each; oversized/invalid data produces an error rather than silent truncation. Large files/slow or stalled disks can require repair/recovery outside the app.
+- Multiple concurrently editing instances are unsupported. Revision conflicts preserve the committed database/in-memory edits and reject overwrites; there is no automatic merge. Back up/reconcile edits before reopening a stale instance.
+- On read/write error, no automatic reset or destructive repair occurs. Back up the complete Application Support folder with the app fully closed; do not delete live WAL/SHM sidecars. Automated backups, encryption, repair/export UI, and cloud sync are outside scope.
+- No SQLite files, personal listening history, signed streams, credentials, build output, or caches belong in Git. All test rows are synthetic/public integration fixtures in temporary stores, never personal data.
+- No Checkpoint 5, accounts, recommendations, downloads/artwork, Mini Player, media keys, AI, Core Data/SwiftData, new repository, or UI redesign was introduced.
 
 ## Files added or modified
 
-- `ARCHITECTURE.md`
-- `MangoMusic.xcodeproj/project.pbxproj`
-- `MangoMusic/App/MangoMusicApp.swift`
-- `MangoMusic/Models/Song.swift`
-- `MangoMusic/Services/AudioStreamResolver.swift`
-- `MangoMusic/Services/MPVConnection.swift`
-- `MangoMusic/Services/PlaybackEngine.swift`
-- `MangoMusic/Services/YouTubeSearchService.swift`
-- `MangoMusic/ViewModels/MusicLibrary.swift`
-- `MangoMusic/Views/LibraryContent.swift`
-- `MangoMusic/Views/MainWindow.swift`
-- `MangoMusic/Views/PlaybackBar.swift`
-- `MangoMusic/Views/SongRow.swift`
-- `README.md`
-- `Tests/MangoMusicTests/MPVIntegrationTests.swift`
-- `Tests/MangoMusicTests/MusicLibraryTests.swift`
-- `Tests/MangoMusicTests/PlaybackTests.swift`
-- `Tests/MangoMusicTests/YouTubeSearchTests.swift`
-- `VALIDATION.md`
+- Added: `MangoMusic/Services/LibraryPersistence.swift`, `MangoMusic/Services/SQLiteLibraryStore.swift`, `Tests/MangoMusicTests/PersistenceTests.swift`.
+- Modified production/config: `MangoMusic/App/MangoMusicApp.swift`, `MangoMusic/Models/Song.swift`, `MangoMusic/ViewModels/MusicLibrary.swift`, `MangoMusic/Views/LibraryContent.swift`, `MangoMusic/Views/MainWindow.swift`, `MangoMusic.xcodeproj/project.pbxproj`, `Package.swift`.
+- Modified tests: `Tests/MangoMusicTests/PlaybackTests.swift`, `Tests/MangoMusicTests/MPVIntegrationTests.swift`, `Tests/MangoMusicTests/YouTubePlaybackIntegrationTests.swift`.
+- Updated: `README.md`, `ARCHITECTURE.md`, `VALIDATION.md`.
 
-Additional files for the 403 diagnosis/fix: `Tests/MangoMusicTests/YouTubePlaybackIntegrationTests.swift` and `YOUTUBE_PLAYBACK_DIAGNOSIS.md`. The production 403 fix only changes the resolver format selector; the rest of the Checkpoint 3 implementation is preserved.
+Final publication requires a complete staged diff/security/artifact review and the exact commit message `Persist Mango Music library and queue with SQLite`, followed by a normal push to existing `origin/main`, live remote hash comparison, and a clean working tree. These were authorized in the task after successful automated validation; unperformed manual checks are disclosed rather than marked passed.

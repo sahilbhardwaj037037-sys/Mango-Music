@@ -22,15 +22,16 @@ struct Song: Identifiable, Hashable, Sendable {
     ]
 }
 
-struct QueueEntry: Identifiable, Equatable {
-    let id = UUID()
+struct QueueEntry: Identifiable, Equatable, Sendable {
+    var id = UUID()
     let song: Song
 }
 
-struct HistoryEntry: Identifiable {
-    let id = UUID()
+struct HistoryEntry: Identifiable, Equatable, Sendable {
+    var id = UUID()
     let song: Song
     let playedAt: Date
+    var playCount = 1
 }
 
 enum Destination: String, CaseIterable, Identifiable {

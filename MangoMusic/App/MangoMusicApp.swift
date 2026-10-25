@@ -4,7 +4,7 @@ import AppKit
 @main
 struct MangoMusicApp: App {
     @NSApplicationDelegateAdaptor(MusicApplicationDelegate.self) private var delegate
-    @State private var library = MusicLibrary()
+    @State private var library = MusicLibrary(store: SQLiteLibraryStore())
 
     var body: some Scene {
         Window("Mango Music", id: "main") {
@@ -44,6 +44,15 @@ final class MusicApplicationDelegate: NSObject, NSApplicationDelegate {
     var library: MusicLibrary?
     var reopenWindow: (() -> Void)?
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let library else { return .terminateNow }
+        if library.isClosing { return .terminateLater }
+        Task {
+            let saved = await library.prepareToQuit()
+            sender.reply(toApplicationShouldTerminate: saved)
+        }
+        return .terminateLater
+    }
     func applicationWillTerminate(_ notification: Notification) { library?.shutdown() }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag { reopenWindow?() }

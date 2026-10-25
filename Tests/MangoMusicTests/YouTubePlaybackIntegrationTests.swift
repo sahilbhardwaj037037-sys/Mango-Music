@@ -10,7 +10,7 @@ struct YouTubePlaybackIntegrationTests {
     func publicVideoPlayback(_ videoID: String) async throws {
         let connection = MPVConnection(audioOutput: "null")
         let player = MPVPlaybackEngine(connection: connection)
-        let library = MusicLibrary(player: player)
+        let library = MusicLibrary(defaults: UserDefaults(suiteName: "MangoIntegrationTests.\(UUID())")!, player: player)
         defer { library.shutdown() }
         let song = Song(id: "youtube:\(videoID)", title: "Public integration fixture", artist: "YouTube", duration: 0, durationKnown: false)
         library.play(song)

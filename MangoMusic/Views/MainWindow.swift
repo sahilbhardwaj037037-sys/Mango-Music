@@ -7,6 +7,14 @@ struct MainWindow: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if library.isRestoring || library.hasUnsavedChanges || library.persistenceError != nil {
+                HStack {
+                    Text(library.persistenceError ?? (library.isRestoring ? "Restoring library…" : "Saving library…"))
+                        .font(.caption).foregroundStyle(.secondary)
+                    if library.persistenceError != nil { Button("Retry", action: library.retryPersistence) }
+                    Spacer()
+                }.padding(10)
+            }
             HStack(spacing: 0) {
                 if library.sidebarVisible {
                     sidebar
@@ -17,8 +25,9 @@ struct MainWindow: View {
                 LibraryContent(library: library)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .disabled(!library.canEditLibrary)
             Divider()
-            PlaybackBar(library: library)
+            PlaybackBar(library: library).disabled(!library.canEditLibrary)
         }
         .background(.background)
         .toolbar {
@@ -35,9 +44,6 @@ struct MainWindow: View {
             }
         }
         .background(PlaybackKeyboardHandler(library: library))
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
-            library.shutdown()
-        }
         .onDisappear { library.cancelSearch() }
     }
 

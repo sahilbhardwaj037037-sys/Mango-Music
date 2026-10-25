@@ -6,7 +6,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [.executable(name: "MangoMusic", targets: ["MangoMusic"])],
     targets: [
-        .executableTarget(name: "MangoMusic", path: "MangoMusic", exclude: ["Assets.xcassets", "App/Info.plist"]),
+        .executableTarget(name: "MangoMusic", path: "MangoMusic", exclude: ["Assets.xcassets", "App/Info.plist"], linkerSettings: [.linkedLibrary("sqlite3")]),
         .testTarget(name: "MangoMusicTests", dependencies: ["MangoMusic"], path: "Tests/MangoMusicTests")
     ]
 )
