@@ -1,6 +1,6 @@
 # Mango Music — Checkpoint 6 validation
 
-25 October 2026, Asia/Kolkata. Checkpoint 6 packages a local Release app; previous Debug manual confirmations are archived verbatim in [VALIDATION_CHECKPOINT5.md](VALIDATION_CHECKPOINT5.md). Those results do not establish manual verification of the packaged Release app. Earlier persistence and HLS evidence remains in VALIDATION_CHECKPOINT4.md and YOUTUBE_PLAYBACK_DIAGNOSIS.md.
+25 October 2026, Asia/Kolkata. Checkpoint 6 packages a local Release app; previous Debug manual confirmations are archived verbatim in [VALIDATION_CHECKPOINT5.md](VALIDATION_CHECKPOINT5.md). The subsequent user-reported standalone results below establish the listed manual checks for the isolated Release package on this Mac; they are separate from those earlier Debug results. Earlier persistence and HLS evidence remains in VALIDATION_CHECKPOINT4.md and YOUTUBE_PLAYBACK_DIAGNOSIS.md.
 
 ## Baseline and scope
 
@@ -57,14 +57,46 @@ The separate CoreAudio helper probe checks the actual selected output, progressi
 
 Launch Services opens the actual isolated bundle with a restricted PATH and isolated HOME/CFFIXED_USER_HOME, confirms its bundle URL/process remains running, then requests normal application termination. This is an automated no-Xcode launch/quit probe, without playback; it is not a human Finder, Dock, icon or Control Center confirmation.
 
-## Manual verification still needed for this package
+## User-reported standalone manual verification
 
-No new human manual pass is claimed. From the isolated output bundle, confirm Finder double-click, correct visible icon, audible YouTube search/playback, all player controls including Previous, seeking and volume, explicit queue completion, window-close/background playback, Dock reopening, and Control Center rendering/Play/Pause/Next/Previous. Quit/relaunch and verify Favorites/History/Queue/preferences restore without autoplay. Verify Cmd+Q while music is playing stops sound and inspect the application-owned helpers/sockets.
+The user personally launched the isolated `.build/packaging/output/Mango Music.app` from Finder without Xcode and reported all nine checks passed for the Checkpoint 6 package implemented in commit `cef93c6c7a994113ddbd85bd5bc7ed290eb1345b`:
 
-The previous six unverified hardware/system checks remain unverified: physical Mac keyboard media keys, Bluetooth headphone controls, Control Center seeking, physical sleep/wake, audio output changes, and process-level no-orphan confirmation after manually quitting the actual app. Helper-level automated process checks do not relabel that final item as manually passed. Other devices and system surfaces remain platform-dependent.
+| Check | Manual result |
+| --- | --- |
+| Finder launch without Xcode | Passed |
+| Real YouTube search | Passed |
+| Audible music playback | Passed |
+| Play/Pause, Next, Previous and volume | Passed |
+| Manual queue playback | Passed |
+| macOS Control Center playback controls | Passed |
+| Background playback after window close and Dock reopening | Passed |
+| Favorites, History, Queue and settings after quit/relaunch | Restored successfully |
+| Cmd+Q | Cleanly stops playback |
+
+These are human observations of the isolated standalone app on this Mac, not results inferred from builds, null output or API readback. The report confirms Control Center playback controls as reported; it does not separately enumerate each system command. It does not separately confirm in-app seeking, icon appearance, automatic queue advancement, no autoplay after relaunch, or process/socket inspection. Cmd+Q stopping playback is not a process-level orphan check. Prior automated coverage of these paths remains separate. No tests or builds were rerun for this documentation-only follow-up.
+
+### Remaining unverified or out of scope
+
+- Runtime compatibility on an actual macOS 14 system; deployment/linkage declarations alone are insufficient.
+- Physical Mac keyboard media keys and Bluetooth headphone controls.
+- System-level seeking from Control Center, physical sleep/wake and audio output device changes.
+- Process-level confirmation of no orphaned mpv/helper processes or IPC sockets after manually quitting the actual app.
+- Other device/surface compatibility remains platform-dependent.
+- Public redistribution compliance, Developer ID signing and notarization remain incomplete or outside scope.
+
+## Installation preparation — no installation performed
+
+A read-only follow-up inspection found no matching Mango Music application in `/Applications` or `~/Applications`: neither `Mango Music.app` nor `MangoMusic.app` exists there, and no immediate `.app` bundle with the Mango Music name or bundle identifier `com.localmusic.MangoMusic` was found. The isolated source app and existing `~/Library/Application Support/MangoMusic/library.sqlite3` are present. The source app's deep/strict code-signature verification passes. This is a point-in-time check; repeat it immediately before any approved copy, including checking for symlinks.
+
+The proposed destination is `/Applications/Mango Music.app`. Installation is pending separate user approval. [PACKAGING.md](PACKAGING.md) records the exact plan: quit all copies, back up the complete Application Support folder and preferences outside Git, revalidate the source, refuse an occupied destination, copy without changing the bundle identifier/data path, verify the copied bundle and its actual launch path, and test playback/restoration/quit from the installed location. No app, database or preferences were copied, replaced or altered during this documentation update. Verification of the installed copy remains pending; isolated-app passes do not substitute for it.
 
 ## Publication and limits
 
 This is local-use packaging with third-party notices and pinned source/build manifests. Private local building is supported; public redistribution compliance, Developer ID and notarization are not complete or in scope. Runtime testing on macOS 14 hardware is still needed despite compatible deployment declarations. Existing user data stays at ~/Library/Application Support/MangoMusic/library.sqlite3 with unchanged preferences and bundle identifier.
 
 The final staged review must contain only source/tests/scripts/docs, no app/helper binaries, source tarballs, caches, personal databases/history, credentials, signed URLs, cookies or signing material. Only after successful automated validation may the requested commit `Package Mango Music as a standalone macOS app` be pushed normally to existing origin/main. The final response records its hash and live remote match; no history rewrite is authorized.
+
+
+## Documentation-only follow-up
+
+This follow-up changes only VALIDATION.md, README.md and PACKAGING.md. Playback code, tests, build configuration, existing user data and the verified app artifact are unchanged. The user authorized committing and pushing this documentation update to existing origin/main. Installation/replacement in /Applications still requires separate approval. No DMG, public release or global tool changes are included.

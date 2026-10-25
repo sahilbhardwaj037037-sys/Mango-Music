@@ -93,32 +93,50 @@ swiftc -parse-as-library Scripts/Packaging/LaunchProbe.swift -o .build/packaging
 
 Run the Swift/Xcode regression commands in VALIDATION.md. Tests accept MANGO_PACKAGED_APP only in test code for explicit helper injection; the shipping app accepts no environment executable override. The validator checks architecture/minimums, dependencies/rpaths including embedded yt-dlp, app/icon metadata, executable permissions, signatures, sandbox absence, unchanged upstream payload and excluded personal/build data.
 
-Launch Services and helper CoreAudio tests are automated evidence, not manual audible/Finder/Dock/Control Center confirmation. All hardware checks that were unverified in Checkpoint 5 remain unverified. macOS 14 declaration/linkage checks cannot replace running on macOS 14. Tests use isolated SQLite/settings and do not modify the user's library.
+Launch Services and helper CoreAudio tests are automated evidence. Separately, the user has now manually confirmed the isolated standalone package on this Mac: Finder launch without Xcode, real YouTube search, audible playback, Play/Pause/Next/Previous/volume, manual queue playback, Control Center playback controls, background playback after closing the window and successful Dock reopening, Favorites/History/Queue/settings restoration after quit/relaunch, and Cmd+Q cleanly stopping playback. See VALIDATION.md for all nine reported passes and their limits. Seeking, icon appearance, automatic queue advancement, no autoplay and process/socket inspection were not separately confirmed in this follow-up. All hardware checks that were unverified in Checkpoint 5 remain unverified. macOS 14 declaration/linkage checks cannot replace running on macOS 14. Tests use isolated SQLite/settings and do not modify the user's library.
 
-## Safe local installation and upgrade
+## Safe /Applications installation plan — approval pending
 
-No installation is performed by this checkpoint. First test the isolated output: in Finder press Cmd+Shift+G and enter `~/Developer/MangoMusic/.build/packaging/output`, then double-click Mango Music.app. Terminal equivalent:
+The isolated app has passed the user's nine reported manual checks. No installation has been performed. A read-only check found no matching immediate app bundle in `/Applications` or `~/Applications`, including both `Mango Music.app` and `MangoMusic.app` and bundles with identifier `com.localmusic.MangoMusic`. The verified source app and the user's existing SQLite database are present; source deep/strict signature verification passes. Recheck all destinations immediately before copying, including symlinks; these observations are not permission to install or replace anything.
+
+Proposed source: `~/Developer/MangoMusic/.build/packaging/output/Mango Music.app`.
+Proposed destination: `/Applications/Mango Music.app`.
+
+The following steps are a plan only. Wait for separate user approval before executing installation:
+
+1. Quit every Mango Music copy, including Xcode/debug and isolated/installed copies. Wait for normal persistence flush and playback shutdown. Verify the owned helpers have exited before backing up; do not kill unrelated media processes. Keep the source bundle and its current signature intact.
+2. With the app fully closed, create a uniquely named private backup outside the repository, for example `~/Library/Application Support/MangoMusic-Backups/<timestamp>/`. Copy the **entire** `~/Library/Application Support/MangoMusic` folder, including any SQLite WAL/SHM sidecars, into that backup. Preserve `com.localmusic.MangoMusic` preferences with a defaults export if that domain exists. Check backup success before proceeding. Do not delete, move, recreate, migrate or restore over the live database; installation only copies the app. Do not back up a live database by copying just library.sqlite3.
+3. Revalidate the isolated source with the commands below. Recheck `/Applications` for both known names, symlinks and any matching bundle identifier. If anything conflicts, stop, preserve it and request a separate replacement decision. Do not merge app bundles or accept Finder's Replace prompt. No replacement is authorized by an approval to install into an empty destination.
+4. After approval and only while the destination remains absent, use Finder to copy the **whole** verified Mango Music.app into `/Applications`, or use a guarded Terminal copy of that same bundle with ditto. Recheck absence immediately before copying and stop if a conflict appears. Do not use sudo automatically; if the directory requires authorization, explain the permission requirement and obtain approval for that action. No Homebrew/Python install or security-setting change is needed.
+5. Before launch, verify the copied bundle using the commands below, then compare source and destination regular-file hashes and symlink targets to ensure the copy is complete and unchanged. Confirm identifier `com.localmusic.MangoMusic`, bundled-tool marker, arm64 support and expected version. Keep the original isolated source available. If copying or validation fails, do not launch or overwrite another app; preserve the existing database and report the partial copy for review.
+6. Open `/Applications/Mango Music.app` explicitly from Finder or the Terminal command below, with all other copies closed. Verify the running application's bundle path is actually under `/Applications`, and update any Dock shortcut that still targets the isolated output. Check the visible icon and Dock reopening from the installed location.
+7. Verify real search/audible playback, Play/Pause/Next/Previous/volume, manual queue, Control Center and background playback. Confirm the **existing** Favorites/History/Queue/settings remain, quit/relaunch to check restoration and no autoplay separately, then verify Cmd+Q stops sound, owned helper processes exit and IPC sockets are removed. Earlier isolated-app passes do not establish installed-copy verification.
+8. Keep the backup and isolated source until installed-copy verification succeeds. For a future upgrade, back up again and obtain explicit approval before replacing an installed copy; never delete Application Support to upgrade or uninstall an app bundle.
+
+Read-only pre-copy validation, safe to run separately from installation:
+
+```sh
+cd ~/Developer/MangoMusic
+codesign --verify --deep --strict '.build/packaging/output/Mango Music.app'
+.build/packaging/tools/bin/python Scripts/Packaging/validate.py '.build/packaging/output/Mango Music.app'
+```
+
+After the separately approved copy, validate and launch the exact installed location:
+
+```sh
+cd ~/Developer/MangoMusic
+codesign --verify --deep --strict '/Applications/Mango Music.app'
+.build/packaging/tools/bin/python Scripts/Packaging/validate.py '/Applications/Mango Music.app'
+open '/Applications/Mango Music.app'
+```
+
+The installed package needs no development tools at runtime; the optional full validator above uses the project-local build environment and pinned reference cache. Preserve the bundle identifier, preferences domain and `~/Library/Application Support/MangoMusic/library.sqlite3`. Both isolated and installed unsandboxed copies intentionally use the same user data; never run them concurrently against that library. Installation into a different directory does not require a database migration. The backup may contain private library data and must stay outside Git and public uploads.
+
+Until approval, launch the already verified isolated source with:
 
 ```sh
 open "$HOME/Developer/MangoMusic/.build/packaging/output/Mango Music.app"
 ```
-
-Confirm audible search/playback, controls/queue, Control Center, background window behavior, Dock reopening, preferences and library restoration without autoplay, and Cmd+Q process/audio cleanup. See VALIDATION.md for the full remaining list. Keep other copies quit so Dock and media routing identify the correct build.
-
-After separate installation approval, quit every Mango Music copy. Check `/Applications/Mango Music.app` and `/Applications/MangoMusic.app`; if either exists, preserve it and obtain explicit approval before replacing it. A user-owned `~/Applications` installation avoids unnecessary administrator permissions; do not silently overwrite there either. Finder installation is a copy of the verified bundle into the approved directory, keeping the prior app as a backup.
-
-For an approved new per-user destination only, this Terminal example refuses overwrite:
-
-```sh
-mkdir -p "$HOME/Applications"
-if test -e "$HOME/Applications/Mango Music.app"; then
-  echo 'Existing app found; preserve it and approve a replacement first.'
-else
-  ditto "$HOME/Developer/MangoMusic/.build/packaging/output/Mango Music.app" "$HOME/Applications/Mango Music.app"
-fi
-```
-
-Do not execute installation as part of automated packaging. Verify the copied bundle again before launch. Retain bundle identifier com.localmusic.MangoMusic, `~/Library/Application Support/MangoMusic/library.sqlite3` and the existing preferences domain; do not delete the Application Support directory when upgrading. The same identifier/data path intentionally shares the library with the development app, so do not run multiple copies against it concurrently.
 
 ## Troubleshooting
 
