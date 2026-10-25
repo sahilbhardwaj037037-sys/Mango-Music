@@ -64,7 +64,7 @@ struct LibraryContent: View {
         switch library.searchState {
         case .idle:
             emptyState("Search YouTube", symbol: "magnifyingglass",
-                       detail: "Enter a song or artist and press Return. Playback is simulated.")
+                       detail: "Enter a song or artist and press Return.")
         case .loading:
             VStack(spacing: 16) {
                 ProgressView("Searching YouTube…")
@@ -87,7 +87,7 @@ struct LibraryContent: View {
                        detail: "No results for \(library.submittedQuery). Try another search.")
         case .loaded:
             VStack(alignment: .leading, spacing: 4) {
-                Text("YouTube results for “\(library.submittedQuery)” · Mock playback")
+                Text("YouTube results for “\(library.submittedQuery)”")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1).padding(.horizontal, 24)
                 songList(library.results, emptyTitle: "No songs found", symbol: "magnifyingglass", detail: "Try another search.")
             }
@@ -113,7 +113,7 @@ struct LibraryContent: View {
                 library.play(song); return .handled
             }
             .overlay(alignment: .bottomLeading) {
-                Text("\(songs.count) songs · Double-click to simulate playback")
+                Text("\(songs.count) songs · Double-click to play")
                     .font(.caption).foregroundStyle(.secondary)
                     .padding(.horizontal, 24).padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading).background(.bar)

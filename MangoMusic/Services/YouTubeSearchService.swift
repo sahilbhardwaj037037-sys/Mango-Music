@@ -34,11 +34,7 @@ enum SearchQuery {
 
 struct YouTubeSearchService: SongSearching {
     /// Only fixed, trusted installation locations are considered; no shell or metadata-derived commands.
-    static let supportedPaths = [
-        "/Library/Frameworks/Python.framework/Versions/3.14/bin/yt-dlp",
-        "/opt/homebrew/bin/yt-dlp",
-        "/usr/local/bin/yt-dlp"
-    ]
+    static var supportedPaths: [String] { ToolLocator.candidates("yt-dlp") }
     var executableURL: URL?
     var runner: any ProcessRunning = FoundationProcessRunner()
 

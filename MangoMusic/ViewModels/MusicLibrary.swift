@@ -20,7 +20,18 @@ final class MusicLibrary {
     var favoriteIDs: Set<String> = []
     var history: [HistoryEntry] = []
     var currentSong: Song?
-    var isPlaying = false
+    private(set) var isPlaying = false
+    private(set) var isLoading = false
+    private(set) var isBuffering = false
+    private(set) var playbackError: String?
+    private(set) var duration: TimeInterval = 0
+    @ObservationIgnored private let resolver: any AudioStreamResolving
+    @ObservationIgnored private let player: any AudioPlaying
+    @ObservationIgnored private(set) var playbackTask: Task<Void, Never>?
+    @ObservationIgnored private var controlTask: Task<Void, Never>?
+    private var playbackID = UUID()
+    private var ended = true
+    private var loaded = false
     var progress: TimeInterval = 0
     var volume: Double = 0.7
     var searchFocusRequest = 0
@@ -30,10 +41,14 @@ final class MusicLibrary {
         didSet { defaults.set(sidebarVisible, forKey: "sidebarVisible") }
     }
 
-    init(defaults: UserDefaults = .standard, searchService: any SongSearching = YouTubeSearchService()) {
+    init(defaults: UserDefaults = .standard, searchService: any SongSearching = YouTubeSearchService(),
+         resolver: any AudioStreamResolving = AudioStreamResolver(), player: (any AudioPlaying)? = nil) {
+        self.resolver = resolver
+        self.player = player ?? MPVPlaybackEngine()
         self.searchService = searchService
         self.defaults = defaults
         sidebarVisible = defaults.object(forKey: "sidebarVisible") as? Bool ?? true
+        self.player.onEvent = { [weak self] id, event in self?.receive(id, event) }
     }
 
     var favorites: [Song] {
@@ -117,12 +132,76 @@ final class MusicLibrary {
         beginPlayback(song)
     }
 
+    func playNext(_ song: Song) { queue.insert(QueueEntry(song: song), at: 0) }
+
     private func beginPlayback(_ song: Song) {
+        let previousTask = playbackTask
+        let previousControl = controlTask
+        previousTask?.cancel()
+        controlTask?.cancel()
+        let request = UUID()
+        playbackID = request
         currentSong = song
         progress = 0
-        isPlaying = true
-        history.insert(HistoryEntry(song: song, playedAt: .now), at: 0)
-        if history.count > 100 { history.removeLast(history.count - 100) }
+        duration = 0
+        isPlaying = false
+        isLoading = true
+        isBuffering = false
+        playbackError = nil
+        ended = false
+        loaded = false
+        let resolver = resolver, player = player
+        playbackTask = Task { [weak self] in
+            // Serialize transitions, including a cancelled mpv startup, to retain one owned process.
+            await previousTask?.value
+            await previousControl?.value
+            guard !Task.isCancelled else { return }
+            await player.stop()
+            do {
+                let url = try await resolver.resolve(song)
+                try Task.checkCancellation()
+                guard let self, self.playbackID == request else { return }
+                try await player.load(url, request: request, volume: self.volume)
+                try Task.checkCancellation()
+            } catch {
+                guard let self, self.playbackID == request, !Task.isCancelled else { return }
+                self.fail((error as? PlaybackError)?.localizedDescription ?? PlaybackError.playback.localizedDescription)
+            }
+        }
+    }
+
+    func receive(_ request: UUID, _ event: PlaybackEvent) {
+        guard request == playbackID, !ended, playbackError == nil else { return }
+        switch event {
+        case .loaded:
+            guard !loaded else { return }
+            loaded = true; isLoading = false; isPlaying = true
+            if let currentSong {
+                history.insert(HistoryEntry(song: currentSong, playedAt: .now), at: 0)
+                if history.count > 100 { history.removeLast(history.count - 100) }
+            }
+        case .position(let value): progress = value
+        case .duration(let value): duration = value
+        case .paused(let value): if loaded { isPlaying = !value }
+        case .buffering(let value): isBuffering = value
+        case .volume(let value): volume = min(1, max(0, value))
+        case .ended:
+            ended = true; isPlaying = false; isLoading = false; isBuffering = false
+            if !queue.isEmpty { next() }
+        case .failure(let message): fail(message)
+        }
+    }
+
+    private func fail(_ message: String) {
+        playbackError = message
+        isPlaying = false; isLoading = false; isBuffering = false
+        let player = player
+        controlTask = Task { await player.stop() }
+    }
+
+    func retryPlayback() {
+        guard let currentSong else { return }
+        beginPlayback(currentSong)
     }
 
     func playQueueEntry(_ id: UUID) {
@@ -131,22 +210,58 @@ final class MusicLibrary {
     }
 
     func togglePlayback() {
-        if let currentSong {
-            if progress >= currentSong.duration { progress = 0 }
-            isPlaying.toggle()
+        if currentSong == nil { if !queue.isEmpty { next() }; return }
+        if playbackError != nil || ended { retryPlayback(); return }
+        guard loaded, !isLoading else { return }
+        let pause = isPlaying
+        performControl { try await $0.pause(pause) }
+    }
+
+    func seek(to value: Double) {
+        guard loaded, duration > 0, value.isFinite else { return }
+        let position = min(duration, max(0, value))
+        performControl { try await $0.seek(position) }
+    }
+
+    func setVolume(_ value: Double) {
+        guard value.isFinite else { return }
+        volume = min(1, max(0, value))
+        guard loaded else { return }
+        let volume = volume
+        performControl { try await $0.volume(volume) }
+    }
+
+    private func performControl(_ action: @escaping @MainActor (any AudioPlaying) async throws -> Void) {
+        let request = playbackID, previous = controlTask, player = player
+        controlTask = Task { [weak self] in
+            await previous?.value
+            guard !Task.isCancelled, let self, self.playbackID == request else { return }
+            do { try await action(player) }
+            catch { if self.playbackID == request { self.fail(PlaybackError.command.localizedDescription) } }
         }
-        else if !queue.isEmpty { next() }
+    }
+
+    func stop() {
+        playbackID = UUID(); playbackTask?.cancel(); controlTask?.cancel()
+        isPlaying = false; isLoading = false; isBuffering = false; ended = true
+        let previous = playbackTask, player = player
+        playbackTask = Task { await previous?.value; await player.stop() }
+    }
+
+    func shutdown() {
+        cancelSearch(); playbackID = UUID(); playbackTask?.cancel(); controlTask?.cancel()
+        player.shutdown()
     }
 
     func next() {
-        guard !queue.isEmpty else { isPlaying = false; return }
+        guard !queue.isEmpty else { stop(); return }
         play(queue.removeFirst().song)
     }
 
     func previous() {
-        if progress > 3 { progress = 0 }
+        if progress > 3 { seek(to: 0) }
         else if let song = previousSongs.popLast() { beginPlayback(song) }
-        else { progress = 0 }
+        else { seek(to: 0) }
     }
 
     func removeQueueEntry(_ id: UUID) { queue.removeAll { $0.id == id } }
@@ -161,9 +276,4 @@ final class MusicLibrary {
         queue.insert(entry, at: destination)
     }
 
-    func tick() {
-        guard isPlaying, let song = currentSong, song.duration > 0 else { return }
-        progress = min(progress + 1, song.duration)
-        if progress >= song.duration { next() }
-    }
 }

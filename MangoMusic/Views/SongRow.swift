@@ -40,6 +40,11 @@ struct SongRow: View {
         .contentShape(Rectangle())
         .background(hovered ? Color.primary.opacity(0.035) : .clear, in: RoundedRectangle(cornerRadius: 6))
         .onHover { hovered = $0 }
+        .contextMenu {
+            Button("Play") { library.play(song) }
+            Button("Play Next") { library.playNext(song) }
+            Button("Add to Queue") { library.enqueue(song) }
+        }
         .accessibilityElement(children: .contain)
     }
 }

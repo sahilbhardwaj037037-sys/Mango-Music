@@ -21,8 +21,10 @@ struct PlaybackBar: View {
                         Image(systemName: library.isPlaying ? "pause.fill" : "play.fill")
                             .font(.title2).frame(width: 28, height: 28)
                     }
-                    .disabled(library.currentSong == nil && library.queue.isEmpty)
+                    .disabled(library.isLoading || (library.currentSong == nil && library.queue.isEmpty))
                     .help("Play/Pause (Space)").accessibilityLabel(library.isPlaying ? "Pause" : "Play")
+                    Button(action: library.stop) { Image(systemName: "stop.fill") }
+                        .disabled(library.currentSong == nil).help("Stop").accessibilityLabel("Stop")
                     Button(action: library.next) { Image(systemName: "forward.end.fill") }
                         .disabled(library.queue.isEmpty).help("Next")
                         .accessibilityLabel("Next song")
@@ -30,18 +32,24 @@ struct PlaybackBar: View {
                 .buttonStyle(.plain)
                 HStack(spacing: 6) {
                     Image(systemName: "speaker.fill").font(.caption).foregroundStyle(.secondary)
-                    Slider(value: $library.volume, in: 0...1).accessibilityLabel("Volume")
+                    Slider(value: Binding(get: { library.volume }, set: { library.setVolume($0) }), in: 0...1).accessibilityLabel("Volume")
                     Image(systemName: "speaker.wave.3.fill").font(.caption).foregroundStyle(.secondary)
                 }
                 .frame(width: 136).padding(.leading, 16)
             }
+            if let error = library.playbackError {
+                HStack {
+                    Text(error).font(.caption).foregroundStyle(.secondary)
+                    Button("Retry", action: library.retryPlayback)
+                }
+            }
             HStack(spacing: 10) {
                 Text(library.progress.timestamp).frame(width: 32, alignment: .trailing)
-                Slider(value: $library.progress, in: 0...max(1, library.currentSong?.duration ?? 1))
-                    .disabled(library.currentSong == nil || library.currentSong?.durationKnown == false)
+                Slider(value: Binding(get: { min(library.progress, max(1, library.duration)) }, set: { library.seek(to: $0) }), in: 0...max(1, library.duration))
+                    .disabled(library.duration <= 0 || library.isLoading)
                     .accessibilityLabel("Playback position")
-                    .accessibilityValue("\(library.progress.timestamp) of \((library.currentSong?.duration ?? 0).timestamp)")
-                Text(library.currentSong?.durationLabel ?? "0:00").frame(width: 32, alignment: .leading)
+                    .accessibilityValue("\(library.progress.timestamp) of \(library.duration.timestamp)")
+                Text(library.duration > 0 ? library.duration.timestamp : "—").frame(width: 32, alignment: .leading)
             }
             .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
         }

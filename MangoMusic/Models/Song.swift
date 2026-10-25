@@ -48,7 +48,7 @@ enum Destination: String, CaseIterable, Identifiable {
 
 extension TimeInterval {
     var timestamp: String {
-        let seconds = max(0, Int(self))
+        let seconds = Int(min(Double(Int.max / 2), max(0, isFinite ? self : 0)))
         return "\(seconds / 60):\(String(format: "%02d", seconds % 60))"
     }
 }

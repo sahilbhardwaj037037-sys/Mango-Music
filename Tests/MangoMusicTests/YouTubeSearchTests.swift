@@ -139,7 +139,7 @@ actor ControlledSearch: SongSearching {
 
 @MainActor struct SearchStateTests {
     func library(_ service: any SongSearching) -> MusicLibrary {
-        MusicLibrary(defaults: UserDefaults(suiteName: "MangoMusicTests.\(UUID().uuidString)")!, searchService: service)
+        MusicLibrary(defaults: UserDefaults(suiteName: "MangoMusicTests.\(UUID().uuidString)")!, searchService: service, resolver: FixtureResolver(), player: FixturePlayer())
     }
 
     @Test func noSearchOnInitializationOrTyping() async {
@@ -243,7 +243,7 @@ actor ControlledSearch: SongSearching {
         #expect(library.favorites == [song])
         library.enqueue(song)
         library.togglePlayback()
-        library.tick()
+        library.stop()
         #expect(library.currentSong == song)
         #expect(library.progress == 0)
     }

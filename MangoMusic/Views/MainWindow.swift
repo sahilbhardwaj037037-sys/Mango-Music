@@ -4,7 +4,6 @@ import AppKit
 
 struct MainWindow: View {
     @Bindable var library: MusicLibrary
-    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,14 +30,13 @@ struct MainWindow: View {
                 .accessibilityLabel("Toggle sidebar")
             }
             ToolbarItem(placement: .primaryAction) {
-                Text("Mock Playback")
+                Text(library.isLoading ? "Loading audio…" : library.isBuffering ? "Buffering…" : "")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
         .background(PlaybackKeyboardHandler(library: library))
-        .onReceive(timer) { _ in library.tick() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
-            library.cancelSearch()
+            library.shutdown()
         }
         .onDisappear { library.cancelSearch() }
     }

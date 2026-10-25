@@ -1,93 +1,126 @@
-# Mango Music — rename and Checkpoint 2 validation
+# Mango Music — Checkpoint 3 validation
 
-Checked October 24, 2026, on Apple Silicon / macOS 26 with Xcode 27.1 and Swift 6.4. Minimum deployment remains macOS 14; older macOS versions and Intel runtime behavior have not been tested.
+Date: 25 October 2026 (Asia/Kolkata).
 
-## Phase A: internal rename
+**Status: Checkpoint 3 validated in Xcode Debug. The final rerun passed all 42 automated tests (including local mpv and live YouTube integrations) and the native Debug build. The user personally confirmed audible playback and the specific manual checks recorded below, and authorized commit/push after successful final validation. Seeking and Previous are not manually verified.** See [YOUTUBE_PLAYBACK_DIAGNOSIS.md](YOUTUBE_PLAYBACK_DIAGNOSIS.md) for the HLS fix.
 
-The existing repository moved from `LocalMusic` to `MangoMusic`. Its Git history, origin, Mango Music branding and exact icon assets were retained. The Xcode object identifiers stayed stable while source/project paths, target, shared scheme, executable, package and test module references were updated.
+## Initial Git safety checkpoint
 
-- Xcode project: `MangoMusic.xcodeproj`
-- Target, scheme, executable and module: `MangoMusic`
-- Test target: `MangoMusicTests`
-- Bundle identifier: `com.localmusic.MangoMusic`
-- User-visible name: **Mango Music**
+The supplied workspace (`~/Developer/LocalMusic`) contains an old workspace stub; the existing project is `~/Developer/MangoMusic`. Before changing application code:
 
-Changing the identifier gives macOS a new preferences/container identity. The former saved sidebar visibility is not migrated. Queue, history and favorites were already in-memory only. Fresh package and compiler-cache paths in `Scripts/check.sh` avoid using precompiled files tied to the original directory.
+- Working tree clean, branch `main`.
+- Existing origin: `https://github.com/sahilbhardwaj037037-sys/Mango-Music.git`.
+- `git fetch origin` succeeded; `git rev-list --left-right --count main...origin/main` returned `0 0`.
+- Local and remote HEAD: `5f1ef7d117eb8daeabaf09e0e35f2b9e5e0a2c08` (`Implement real YouTube search with yt-dlp`). No preliminary push necessary.
+- No unrelated work was committed/discarded, no repository was created, and no history was rewritten.
 
-Phase A application build and all **six existing tests passed**. The renamed project opened in Xcode. The app launched, and macOS reported Mango Music, an available app icon, regular Dock activation policy and one on-screen window. Phase A was committed separately before search implementation.
+Changes were compiled initially in a temporary staging copy, then applied to the existing project. Final build/tests ran from the existing project. All original uncommitted Checkpoint 3 work was preserved. The user subsequently verified Debug playback and explicitly authorized normal publication after final review, successful test/build reruns, and staged-content inspection. A fresh pre-publication fetch again returned `0 0` for `main...origin/main`.
 
-## Phase B: real search
+## Environment
 
-`YouTubeSearchService` calls the existing yt-dlp executable with explicit arguments and decodes flat-playlist JSON. It validates queries, caps the result list at ten, validates YouTube video identifiers, filters duplicate/unusable entries, handles optional channel/duration metadata and rejects malformed responses. Unknown or unreasonable duration is shown as **—**.
+- Swift 6.4, Xcode 27.1; My Mac arm64.
+- mpv 0.41.0 at `/opt/homebrew/bin/mpv`.
+- Homebrew yt-dlp 2026.10.21; Python-framework yt-dlp 2026.08.19 also present at the previous 3.14 hint.
+- Runtime lookup validates executable candidates rather than relying exclusively on those machine paths.
+- Debug sandbox remains disabled; Release sandbox remains enabled and unchanged. Release external-tool playback is unsupported and not distribution-ready.
 
-`FoundationProcessRunner` runs off the main actor, drains stdout/stderr concurrently, limits output and enforces an overall timeout. Cancellation handles start/cancel races, sends termination and escalates to a kill for an unresponsive process. Closing the main window or terminating the application cancels an active search. A cancelled or superseded request cannot change newer search state, even if a service ignores cancellation.
+## Implemented
 
-Requests only originate from explicit Return/Retry actions. Opening the app, editing text, clearing the input and ordinary navigation start no requests. No media or thumbnail downloads, audio streaming, mpv, paid API or browser integration was added. Search metadata can be used in the existing mock queue, favorites and history.
+Dedicated asynchronous audio-only resolution with bounded Process execution, strict IDs, validated HTTPS output, cancellation, sanitized errors, fresh streams per attempt, and no downloads/cookies. Persistent audio-only mpv, private Unix socket, request/response IDs, ordered event delivery, startup/command/load deadlines, pause/resume/stop/seek/volume, actual position/duration, buffering, EOF, explicit Retry, and owned process cleanup.
 
-## Security decision
+Search selection and existing layout/branding/icon remain. Search stays explicit and limited to ten. Context actions include Play, Play Next, Add to Queue. The timer and mock labels were removed. The bottom bar uses real player state, shows errors/Retry, and adds Stop. Queue ordering/removal/clear remain; EOF consumes only manual entries and errors never skip. Dock reopening and quit cleanup are implemented in an application delegate. [ARCHITECTURE.md](ARCHITECTURE.md) specifies exact queue and process behavior.
 
-The owner explicitly approved disabling App Sandbox for local development. **Only Debug on the MangoMusic application target sets `ENABLE_APP_SANDBOX = NO`. Release retains `YES`.** No system-wide setting, SIP, Gatekeeper or unrelated target was changed.
+## Automated results
 
-The service uses fixed tool installation paths and `Process.executableURL` / argument arrays. It never invokes a shell or executes returned metadata. User downloader configuration/plugins and persistent caching are disabled. A minimal subprocess environment excludes inherited credential/Python injection variables. Raw subprocess/server text is not presented as a UI error. Distribution and a sandbox-compatible bundled-helper design remain future work; Release external-tool search is not supported by this checkpoint.
+Final command, from `~/Developer/MangoMusic`:
 
-## Commands and actual results
+```sh
+MANGO_MPV_INTEGRATION=1 MANGO_YOUTUBE_INTEGRATION=1 MANGO_YOUTUBE_DIAGNOSTICS=1 swift test
+```
 
-Phase A:
+**42 test declarations passed across seven suites in 14.345 seconds; zero failures and zero skips.** All previous 39 passing tests are retained, along with the previously failing live queue test, a new format-selection regression, and a new live test parameterized over three public IDs. Parameterized tests include additional cases. The new live test asserts actual mpv volume events, pause/resume, duration/position, seeking, and stop. Ordinary `swift test` remains offline; integration tests require explicit opt-in.
+
+Coverage includes valid/invalid IDs; valid/malformed URL output; missing tools; resolution success/nonzero/timeout; malformed IPC; startup/connection failure; process termination and repeated cleanup; sealed ownership preventing post-quit launch; loading/pause/resume/seek/volume/buffering; EOF/empty queue; manual ordering/duplicates/removal; Next/Previous; failure/Retry without skip; cancellation and a resolver deliberately returning a stale result after cancellation. Existing search/runner tests cover metadata handling, ten-result limits, literal arguments, pipe bounds, real subprocess timeout/cancellation, and stale search results.
+
+The optional real-mpv test generates temporary PCM audio, sends it through the production engine with null output, and verifies load, clock/duration, pause/resume, seek, volume, EOF once, process reuse, explicit stop, and a two-entry queue that stops at exhaustion. The fixture and private socket resources are cleaned up. This verifies decoding/IPC/state/queue behavior, **not audible sound**.
+
+## Xcode results
 
 ```sh
 xcodebuild -project MangoMusic.xcodeproj -scheme MangoMusic \
-  -destination 'platform=macOS' -derivedDataPath .build/RenameDerivedData \
-  CODE_SIGNING_ALLOWED=NO build
-./Scripts/check.sh
+  -configuration Debug -destination 'platform=macOS,arch=arm64' \
+  -derivedDataPath /tmp/MangoMusic-Checkpoint3-Final CODE_SIGNING_ALLOWED=NO build
 ```
 
-Phase B:
+**BUILD SUCCEEDED** from the final existing project. This is a native Debug build; it does not validate distribution signing. Xcode's project test action was attempted and reports: `Scheme MangoMusic is not currently configured for the test action.` The repository's tests are SwiftPM tests; no separate Xcode test target exists.
 
-```sh
-xcodebuild -project MangoMusic.xcodeproj -scheme MangoMusic \
-  -configuration Debug -destination 'platform=macOS' \
-  -derivedDataPath .build/SearchDerivedData CODE_SIGNING_ALLOWED=NO build
-./Scripts/check.sh
-```
+Build/IPC operations needed execution outside the agent's restricted tool sandbox. This did not change the app's sandbox settings, Gatekeeper, SIP, or system security configuration.
 
-The script executes the Swift package build and test suite using `.build/MangoMusicPackage` and fresh project-local caches, then validates project plist and shared-scheme XML. No third-party packages are fetched.
+A separate newly launched instance of the final Debug app remained running after launch and exited after a graceful NSRunningApplication termination request. The already-running user instance was preserved. This is a launch/quit smoke check without active playback; it does not verify close-window/Dock behavior or Cmd+Q during streaming.
 
-| Check | Result |
+## Real YouTube integration — now passing
+
+The initial direct-audio pipeline failed with HTTP 403 after successful resolution. The supported selector `bestaudio[protocol^=m3u8]/bestaudio` now prefers advertised audio-only HLS; the production resolver still uses one temporary HTTPS URL, the same bounded Process runner, and the same persistent mpv/IPC engine. No headers, client overrides, credentials, extra retry attempts, or dependencies were needed.
+
+Before the fix, direct mpv/yt-dlp and separately resolved direct URLs failed on Rick Astley and PSY; the short public clip loaded. Headers did not reliably resolve music-video failures. Fresh URL expiry was checked. HLS then played all three; repeated HLS checks on both music videos worked without extra headers. Full comparisons, installed versions, and remaining uncertainty about YouTube's internal rejection policy are in [YOUTUBE_PLAYBACK_DIAGNOSIS.md](YOUTUBE_PLAYBACK_DIAGNOSIS.md).
+
+The final live tests pass through the actual MusicLibrary → AudioStreamResolver → persistent MPVPlaybackEngine pipeline. They verify Rick Astley (`dQw4w9WgXcQ`), PSY (`9bZkp7q19f0`), and Me at the zoo (`jNQXAC9IVRw`) load, advance the playback clock, report duration, pause/resume, acknowledge volume, seek, and stop. The original search-based two-entry queue test also passes: it seeks near EOF to exercise real streamed completion, automatic manual-queue advancement, and stopping at exhaustion. It does not wait through two full songs from beginning to end.
+
+Automated playback uses null audio output; audible verification comes from the user’s personal Xcode Debug test, not those automated events. HLS-less or restricted videos can still fail and show Retry. Debug sandbox is unchanged; Release remains unsupported for external-tool playback.
+
+## User-reported manual verification
+
+On 25 October 2026, the user personally tested Mango Music in Xcode Debug and reported these checks successful:
+
+| Check | Manual result |
 | --- | --- |
-| Phase A native Xcode build | Passed |
-| Phase A package build / six tests | Passed |
-| Phase B native Debug Xcode build | Passed |
-| Phase B Swift package build | Passed |
-| Automated tests | **27 tests in 3 suites passed** |
-| Xcode project plist / scheme XML | Passed |
-| Explicit live service search | **Passed: ten results, all ten with durations** |
-| Final Debug app launch | Passed: Mango Music name, icon available and one on-screen window |
+| Real YouTube audio | Plays audibly |
+| Play/Pause | Works |
+| Volume | Works |
+| Explicitly added songs | Appear in the queue |
+| Next | Plays the queued song |
+| Track completion | Starts the next explicitly queued song automatically |
+| Closing the main window | Does not interrupt music |
+| Reopening from the Dock | Restores the window |
+| History | Played songs appear |
+| Cmd+Q | Quits the app and stops playback |
+| Seeking | **Not separately confirmed manually**; automated local/live tests pass |
+| Previous | **Not separately confirmed manually**; automated model tests pass |
 
-The live check called the production `YouTubeSearchService`/`FoundationProcessRunner` with “Bach cello suite” using the installed Python-framework yt-dlp (2026.08.19). A temporary native executable compiled the same service and model source to perform this one explicit search. It was not an automated unit test or a simulated JSON result. It downloaded no media/artwork and committed no returned metadata. The service also detects Homebrew installation paths; the Homebrew binary present locally reports 2026.10.21.
+These are the user's reported results, not an independently performed audible check by the agent. No specific video IDs, additional keyboard/accessibility checks, or process/socket inspection were reported in the manual session. Queue exhaustion is covered by automated tests, not separately claimed as manually verified. Cmd+Q stopping sound is confirmed; separate inspection of the owned mpv PID and socket directory is not claimed as a manual check.
 
-Automated tests are entirely offline. Coverage includes all existing queue/history/playback/sidebar behavior; fixture-based search integration; valid/empty/malformed JSON; missing and unknown metadata; duplicate removal and ten-result limit; input validation and literal arguments; missing executable and launch/nonzero errors; simultaneous pipe drainage beyond a pipe buffer; bounded output; actual child-process cancellation/timeout; initial idle state; loading, success, empty, error, Retry, clear and cancellation; stale success/error rejection; and favorites for real metadata with unknown-duration mock playback.
+## Remaining manual checks
 
-The previous mock-only search test was adapted to an injected fixture service; it does not contact YouTube. Its empty-input assertion now tests clearing to idle, since an empty input must not trigger a real search. The other five original regression tests retain their behavior.
+Seeking and Previous remain optional follow-up acceptance checks; their absence does not override the user's explicit authorization to publish this checkpoint. To check seeking, play a song, move the slider forward/backward, and compare audible position with elapsed time. To check Previous, press after more than three seconds to restart, then near the start to navigate to the prior selected track. Broader accessibility/keyboard review, queue reorder/remove/clear, error/Retry interactions, and an Activity Monitor/socket inspection were not included in the user's reported session.
 
-The native build can emit the existing AppIntents metadata-extraction warning because no AppIntents dependency is present. Build logs, generated smoke executables, temporary previews and raw diagnostics remain only in ignored `.build/`. Signing, notarization, distribution and Release search were not validated.
+## Final review and publication
 
-## Manual checks
+The final review covered the entire Checkpoint 3 diff and new files: bounded async resolution and strict IDs, HLS preference/audio-only fallback, persistent mpv/private IPC, request/event correlation, cancellation and stale requests, manual queue/history/control behavior, process shutdown, native window lifecycle, Xcode source membership, and tests/documentation. No blocking issue was found. The Release sandbox configuration and branding/icon remain unchanged.
 
-1. Open the new project, run **MangoMusic / My Mac / Debug**, and confirm Mango Music's name and original icon.
-2. Type without pressing Return: no search should start. Press Return: verify loading and up to ten YouTube results, including channel and duration.
-3. Submit a new query while one is loading, or press Cancel. Verify the newer results/cancelled state stay visible. Retry should resubmit the last valid query.
-4. Clear the field: verify the initial search prompt, with no automatic request. Test an invalid or oversized query; it should show a validation message.
-5. Disconnect networking using your normal controls and submit a search. Verify a safe error/timeout and Retry. Automated tests cover nonzero/missing-executable behavior without changing installed tools.
-6. Add a result to the queue and favorites, submit another search, and revisit Favorites. Double-click/Return should update mock playback and history without producing sound.
-7. Verify Command+B, Command+F, typing spaces, list Return/Delete, queue reorder, Light/Dark contrast, resizing and VoiceOver labels. Unknown duration should show a dash with seeking disabled.
-8. Review the Debug-only sandbox setting and README security note before any future distribution work.
+The user approved a normal commit with message `Implement real audio playback with mpv and HLS streaming` and push to the existing `origin/main`, conditional on passing validation and staged-content inspection. No force-push or history rewrite is authorized. The staged-content check includes every staged file and searches for secrets, signed media URLs, cookies/credentials, binaries, generated build/cache/user state, and unrelated files. Only the reviewed source, project configuration, tests, and four documents belong to this checkpoint. The final response records the resulting commit hash and remote/clean-tree verification, avoiding a self-referential commit hash in this file.
 
-Screen capture access is unavailable; no fabricated screenshots or unperformed visual checks are claimed. Full keyboard/pointer/accessibility review remains manual. YouTube availability and metadata may change; the implementation handles process failure without silent fallback to mock search results.
+No SQLite/Checkpoint 4, AI service, artwork, Mini Player, media keys, new repository, or system security change was introduced. Release is not distribution-ready.
 
-## Historical console diagnostic
+## Files added or modified
 
-The Checkpoint 1 `fopen failed for data file: errno = 2 (No such file or directory)` message was traced to Apple's `libCoreFSCache.dylib` in OpenGL.framework, followed by `Invalidating cache`. No matching app file-loading operation was found, and no logging was suppressed. That earlier framework diagnostic is separate from yt-dlp error handling.
+- `ARCHITECTURE.md`
+- `MangoMusic.xcodeproj/project.pbxproj`
+- `MangoMusic/App/MangoMusicApp.swift`
+- `MangoMusic/Models/Song.swift`
+- `MangoMusic/Services/AudioStreamResolver.swift`
+- `MangoMusic/Services/MPVConnection.swift`
+- `MangoMusic/Services/PlaybackEngine.swift`
+- `MangoMusic/Services/YouTubeSearchService.swift`
+- `MangoMusic/ViewModels/MusicLibrary.swift`
+- `MangoMusic/Views/LibraryContent.swift`
+- `MangoMusic/Views/MainWindow.swift`
+- `MangoMusic/Views/PlaybackBar.swift`
+- `MangoMusic/Views/SongRow.swift`
+- `README.md`
+- `Tests/MangoMusicTests/MPVIntegrationTests.swift`
+- `Tests/MangoMusicTests/MusicLibraryTests.swift`
+- `Tests/MangoMusicTests/PlaybackTests.swift`
+- `Tests/MangoMusicTests/YouTubeSearchTests.swift`
+- `VALIDATION.md`
 
-## Scope
-
-Playback, seeking and volume remain mock state. Nothing from Checkpoint 3, including actual audio playback or mpv integration, is implemented. Existing commits and origin are retained; the rename and search are separate commits, pushed normally after validation.
+Additional files for the 403 diagnosis/fix: `Tests/MangoMusicTests/YouTubePlaybackIntegrationTests.swift` and `YOUTUBE_PLAYBACK_DIAGNOSIS.md`. The production 403 fix only changes the resolver format selector; the rest of the Checkpoint 3 implementation is preserved.
