@@ -32,7 +32,25 @@ Compiler/plugin execution used the established approved execution mode outside t
 
 The separate existing live checks also passed: YouTube search/manual queue and three canonical public-video playback cases. No signed stream URLs/raw diagnostics/audio files were committed. Phase 2A's staged bundled-helper/restricted-PATH research is distinct from this Debug integration; no new standalone package was built or installed.
 
-## Manual Xcode verification — pending for Phase 2B
+## User-performed Phase 2B manual results
+
+The user reports completing all six manual tests below successfully in Xcode for implementation commit `5b5e6dd30a6ce4721fc78829cfcbee66b88bf9bd`. These are user-performed manual observations, separate from the 133 automated tests and null-output integration checks above. Codex did not perform or infer these GUI results.
+
+| Manual test | User-reported result |
+| --- | --- |
+| Autoplay switch and persistence | PASS |
+| YouTube Mix automatic playback | PASS |
+| Manual Queue priority | PASS |
+| Favorites priority | PASS |
+| Repeat compatibility | PASS |
+| Stop and Next behavior | PASS |
+
+This report confirms these six checks only. It does not independently establish VoiceOver, hardware controls, physical sleep/output changes, background-window behavior, process cleanup, live fallback/throttling, or universal YouTube availability. No tests or builds were rerun for this documentation-only finalization. Production sources, the installed application, real user data, and the pre-existing shared scheme edits were unchanged.
+
+## Manual Xcode verification checklist
+
+The six user-reported passes above complete the reported Phase 2B manual tests. The broader checklist below is retained for future regression testing; items outside that report remain unverified.
+
 
 1. Quit the installed Mango Music normally. Open `/Users/sahilbhardwaj/Developer/MangoMusic/MangoMusic.xcodeproj`; select **MangoMusic → My Mac**, **Run → Debug**. Retain the existing isolated `HOME` and `CFFIXED_USER_HOME` values `/Users/sahilbhardwaj/Developer/MangoMusic/.build/phase1-manual-home` under Edit Scheme → Run → Arguments. Keep these local scheme edits uncommitted. Press **Cmd+R** to run the Debug product, not the installed bundle.
 2. Find the **Autoplay** switch beneath the transport/volume row. Verify initial Off, keyboard/VoiceOver labels/help, and persistence after quit/relaunch. Relaunch must remain stopped even with Autoplay On; enabling the switch while stopped must not start playback.
@@ -48,7 +66,7 @@ Mix/Radio is anonymous and service-dependent, with changing membership and incom
 
 Each provider process is capped at 30 seconds; one fallback can make the pair approach 60 seconds. Gaps while fetching/resolving are possible. Cache/buffer live only in the session; provider throttling suppresses requests for 120 seconds, other errors for 30 seconds, with no scheduled retry. After three consecutive automatic playback failures the user must choose a song or Retry; explicit manual/Favorites playback never silently skips errors. Previous starts a fresh recommendation context when returning to an earlier selection, while its Favorites cursor follows existing behavior.
 
-`/Applications/Mango Music.app`, real user data, global tools, signing and security configuration are untouched. No packaging, installation, release, audio downloads or Phase 3 work occurred. Phase 2B human UI/audible/background/hardware checks are not claimed by automated tests. The user-performed Phase 1.5 results below remain separate evidence.
+`/Applications/Mango Music.app`, real user data, global tools, signing and security configuration are untouched. No packaging, installation, release, audio downloads or Phase 3 work occurred. The six user-performed Phase 2B passes above are separate evidence from automated checks; broader audible/background/hardware checks are not inferred from that report. The user-performed Phase 1.5 results below also remain separate evidence.
 
 ---
 
