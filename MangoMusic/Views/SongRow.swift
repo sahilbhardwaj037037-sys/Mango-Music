@@ -4,6 +4,7 @@ struct SongRow: View {
     let song: Song
     @Bindable var library: MusicLibrary
     var remove: (() -> Void)?
+    var deleteFromHistory: (() -> Void)?
     @State private var hovered = false
     private var isCurrent: Bool { library.currentSong?.id == song.id }
 
@@ -44,6 +45,10 @@ struct SongRow: View {
             Button("Play") { library.play(song) }
             Button("Play Next") { library.playNext(song) }
             Button("Add to Queue") { library.enqueue(song) }
+            if let deleteFromHistory {
+                Divider()
+                Button("Delete from History", role: .destructive, action: deleteFromHistory)
+            }
         }
         .accessibilityElement(children: .contain)
     }

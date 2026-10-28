@@ -1,3 +1,41 @@
+# Mango Music — Phase 1.5 History Management validation
+
+Phase 1 GitHub finalization completed first: a fresh fetch and live remote check confirmed local/main and origin/main at `78651ce18aaa0f4fa0f35dc36c8f20443d90e49f`, with zero commits ahead/behind and the Phase 1 commit present on origin/main. No redundant Phase 1 commit was created. The user reports Phase 1 manual playback testing passed, including repeat modes, Favorites Play All/Shuffle, queue priority, and playlist continuation.
+
+A pre-existing shared Xcode scheme modification supplies isolated manual-test HOME/CFFIXED_USER_HOME settings and Xcode formatting/TestAction changes. It was preserved byte-for-byte and excluded from Phase 1.5 commits. The final Git status must report this existing local modification rather than claim a clean working tree or discard user work.
+
+## Phase 1.5 results — 28 October 2026, Asia/Kolkata
+
+- Full suite: **106 tests passed in 13 suites**, all opt-in integrations enabled, no skipped declarations. This includes local mpv, native media registration/lifecycle, live YouTube search/manual queue, and three public-video playback cases.
+- Swift package Debug build and project plist/shared-scheme XML validation passed through `Scripts/check.sh`.
+- Xcode Debug: **BUILD SUCCEEDED**, with project-local `.build/Phase15DerivedData` and command-line signing disabled; no checked-in signing/security configuration change.
+- New `HistoryManagementTests`: individual UUID deletion and durability; clear request/cancel/confirm and empty-state behavior; all three age policies and cutoff boundary; cleanup on startup and scheduled idle expiry; 100/500 newest-first limits and later playback; default Unlimited beyond the old SQLite guard (10,002 persisted rows); valid/invalid preference restoration; preservation of Favorites, Queue, playlist, current playback and session metadata; failed-save visibility/retry.
+- Existing playback, repeat, playlist, system media, persistence/migration/corruption/conflict, and background-lifecycle regressions all passed. All database/settings tests use temporary SQLite files and unique UserDefaults suites.
+- Complete implementation/test/documentation diff and whitespace reviewed before commit. The initial test run exposed submicrosecond timestamp precision differences in fixture equality after SQLite conversion; deterministic whole-second fixtures and identity comparisons correct those assertions.
+
+Commands:
+
+```sh
+MANGO_MPV_INTEGRATION=1 MANGO_NATIVE_MEDIA_INTEGRATION=1 \
+MANGO_YOUTUBE_INTEGRATION=1 MANGO_YOUTUBE_DIAGNOSTICS=1 Scripts/check.sh
+xcodebuild -project MangoMusic.xcodeproj -scheme MangoMusic \
+  -configuration Debug -destination 'platform=macOS,arch=arm64' \
+  -derivedDataPath .build/Phase15DerivedData CODE_SIGNING_ALLOWED=NO build
+```
+
+## Phase 1.5 manual testing
+
+Use the isolated Xcode launch instructions in the Phase 1 section below; the pre-existing local scheme already points both HOME and CFFIXED_USER_HOME to `.build/phase1-manual-home`. Quit the installed app normally first. Keep both environment variables enabled, select MangoMusic → My Mac → Debug, and Cmd+R. Never run manual tests against the real user library.
+
+1. Play several test songs, open History, right-click one and choose Delete from History. Verify only that record disappears immediately and stays removed after relaunch. Also try selecting a row and pressing Delete. Delete the currently playing record and verify audio and playlist progression continue.
+2. Click Clear History… and choose Cancel: entries stay. Repeat and choose Clear: entries disappear; Favorites/Queue remain and audio continues. An empty History disables Clear while retaining both policy pickers.
+3. Change Auto-cleanup through Never/7/30/90 days and Keep through Unlimited/100/500 songs. Quit/relaunch to verify selections persist. Automated fixtures cover old dates and large collections; do not change the system clock or real database to fabricate manual cases. Choosing stricter policies immediately removes eligible older test rows; loosening them cannot restore deleted entries.
+4. Verify keyboard navigation, VoiceOver labels, confirmation dismissal/Cancel/Clear, narrow-window controls, background playback/window reopening, and Control Center controls. Recheck repeat/Favorites/queue behavior and no autoplay on relaunch.
+
+Human Phase 1.5 UI, confirmation interaction, accessibility, and audible checks remain pending. Unlimited retains all rows subject to system resources and the existing SQL deadline; save errors retain the prior committed database and show Retry. Cleanup uses elapsed 24-hour days since the most recent play and runs on reopening after the app was closed. No app was launched for testing by this implementation, no real user data was opened/modified, `/Applications/Mango Music.app` was untouched, and no packaging/install/release or Phase 2 work was performed.
+
+---
+
 # Mango Music — Checkpoint 7, Phase 1 validation
 
 28 October 2026, Asia/Kolkata. Initial `main` was clean at `ab0af495627e1c7f92f78715a8118cebd5807e2f`; a fresh fetch confirmed HEAD and origin/main matched before edits. Phase 1 changes only the coordinator, two views, tests, and documentation. No SQLite migration, dependency, packaging, signing, installed app, or user-data change is part of this work. Checkpoint 6 evidence below is historical; the user now reports the stable app is installed at `/Applications/Mango Music.app`, which this phase leaves untouched.

@@ -7,6 +7,33 @@ enum RepeatMode: String, CaseIterable {
     var symbol: String { self == .one ? "repeat.1" : "repeat" }
 }
 
+enum HistoryRetention: String, CaseIterable, Identifiable {
+    case never, sevenDays, thirtyDays, ninetyDays
+    var id: Self { self }
+    var days: Int? {
+        switch self {
+        case .never: nil
+        case .sevenDays: 7
+        case .thirtyDays: 30
+        case .ninetyDays: 90
+        }
+    }
+    var label: String { days.map { "After \($0) days" } ?? "Never" }
+}
+
+enum HistoryLimit: String, CaseIterable, Identifiable {
+    case unlimited, hundred, fiveHundred
+    var id: Self { self }
+    var count: Int? {
+        switch self {
+        case .unlimited: nil
+        case .hundred: 100
+        case .fiveHundred: 500
+        }
+    }
+    var label: String { count.map { "\($0) songs" } ?? "Unlimited" }
+}
+
 enum SearchState: Equatable {
     case idle, loading, loaded, empty, cancelled, failure(String)
 }
@@ -25,6 +52,10 @@ final class MusicLibrary {
     private(set) var queue: [QueueEntry] = []
     private(set) var favoriteIDs: Set<String> = []
     private(set) var history: [HistoryEntry] = []
+    private(set) var historyRetention: HistoryRetention = .never
+    private(set) var historyLimit: HistoryLimit = .unlimited
+    private(set) var isClearHistoryConfirmationPresented = false
+    @ObservationIgnored private var historyCleanupTask: Task<Void, Never>?
     var currentSong: Song?
     private(set) var isPlaying = false
     private(set) var isLoading = false
@@ -130,6 +161,8 @@ final class MusicLibrary {
         self.searchService = searchService
         self.defaults = defaults
         repeatMode = defaults.string(forKey: "repeatMode").flatMap(RepeatMode.init(rawValue:)) ?? .off
+        historyRetention = defaults.string(forKey: "historyRetention").flatMap(HistoryRetention.init(rawValue:)) ?? .never
+        historyLimit = defaults.string(forKey: "historyLimit").flatMap(HistoryLimit.init(rawValue:)) ?? .unlimited
         sidebarVisible = (defaults.object(forKey: "sidebarVisible") as? NSNumber)
             .flatMap { CFGetTypeID($0) == CFBooleanGetTypeID() ? $0.boolValue : nil } ?? true
         if let stored = defaults.object(forKey: "volume") as? NSNumber,
@@ -399,6 +432,7 @@ final class MusicLibrary {
     }
 
     func shutdown() {
+        historyCleanupTask?.cancel()
         defer { onMediaStateChange?() }
         desiredPaused = true; loaded = false; ended = true
         isPlaying = false; isLoading = false; isBuffering = false
@@ -468,15 +502,82 @@ final class MusicLibrary {
         // Retain the reference while stopped so Play consumes this exact restored queue entry.
     }
 
+    func deleteHistoryEntry(_ id: UUID) {
+        guard canEditLibrary, history.contains(where: { $0.id == id }) else { return }
+        history.removeAll { $0.id == id }
+        if history.isEmpty { cancelClearHistory() }
+        scheduleSave()
+        scheduleHistoryCleanup()
+    }
+
+    func requestClearHistory() {
+        guard canEditLibrary, !history.isEmpty else { return }
+        isClearHistoryConfirmationPresented = true
+    }
+
+    func cancelClearHistory() { isClearHistoryConfirmationPresented = false }
+
+    func confirmClearHistory() {
+        guard isClearHistoryConfirmationPresented, canEditLibrary else { return }
+        cancelClearHistory()
+        history.removeAll()
+        scheduleSave()
+        scheduleHistoryCleanup()
+    }
+
+    func setHistoryRetention(_ value: HistoryRetention) {
+        guard canEditLibrary else { return }
+        historyRetention = value
+        defaults.set(value.rawValue, forKey: "historyRetention")
+        cleanupHistory()
+    }
+
+    func setHistoryLimit(_ value: HistoryLimit) {
+        guard canEditLibrary else { return }
+        historyLimit = value
+        defaults.set(value.rawValue, forKey: "historyLimit")
+        cleanupHistory()
+    }
+
+    // Entries are already newest-first; filtering preserves stable row identities and order.
+    func cleanupHistory(now: Date = .now) {
+        guard canEditLibrary else { return }
+        let oldCount = history.count
+        if let days = historyRetention.days {
+            let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
+            history.removeAll { $0.playedAt <= cutoff }
+        }
+        if let limit = historyLimit.count, history.count > limit {
+            history.removeLast(history.count - limit)
+        }
+        if history.isEmpty { cancelClearHistory() }
+        if history.count != oldCount { scheduleSave() }
+        scheduleHistoryCleanup()
+    }
+
+    private func scheduleHistoryCleanup() {
+        historyCleanupTask?.cancel()
+        historyCleanupTask = nil
+        guard canEditLibrary, let days = historyRetention.days, let oldest = history.last else { return }
+        let expiry = oldest.playedAt.addingTimeInterval(Double(days) * 86_400)
+        // Recheck at least daily, also bounding sleeps after wall-clock changes.
+        let delay = min(86_400, max(0.05, expiry.timeIntervalSinceNow))
+        historyCleanupTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+            self?.cleanupHistory()
+        }
+    }
+
     private func recordStartedPlayback() {
         guard let song = currentSong else { return }
         historyRecorded = true
         pendingQueueEntry = nil
+        cleanupHistory()
         let old = history.first(where: { $0.song.id == song.id })
         history.removeAll { $0.song.id == song.id }
         history.insert(HistoryEntry(id: old?.id ?? UUID(), song: song, playedAt: .now,
                                    playCount: min(old?.playCount ?? 0, Int.max - 1) + 1), at: 0)
-        if history.count > 100 { history.removeLast(history.count - 100) }
+        cleanupHistory()
         scheduleSave()
     }
 
@@ -507,6 +608,7 @@ final class MusicLibrary {
                 if let song = data.currentSong { self.knownSongs[song.id] = song }
                 // Restoration only populates metadata. No engine or resolver call is made.
                 self.isRestoring = false; self.dataLoaded = true
+                self.cleanupHistory()
                 if let pending = data.pendingQueueEntry {
                     let needsRecovery = !self.queue.contains(where: { $0.id == pending.id })
                     self.returnPendingEntry()
@@ -564,8 +666,9 @@ final class MusicLibrary {
         defer { onMediaStateChange?() }
         guard !isClosing else { return false }
         isClosing = true
+        cancelClearHistory(); historyCleanupTask?.cancel()
         cancelSearch(); stop()
-        guard await flushPersistence() else { isClosing = false; return false }
+        guard await flushPersistence() else { isClosing = false; scheduleHistoryCleanup(); return false }
         player.shutdown()
         await store?.close()
         pendingQueueEntry = nil // Teardown only; the durable recovery reference is retained.

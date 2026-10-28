@@ -238,7 +238,7 @@ private final class LibraryDatabase {
     }
     func save(_ snapshot: LibrarySnapshot, expecting revision: Int) throws -> Int {
         operationDeadline = Date().addingTimeInterval(3); defer { operationDeadline = .distantFuture }
-        guard snapshot.queue.count <= 10_000, snapshot.history.count <= 10_000, snapshot.favorites.count <= 10_000,
+        guard snapshot.queue.count <= 10_000, snapshot.favorites.count <= 10_000,
               revision >= 0, revision < Int.max,
               snapshot.pendingQueueEntry == nil || snapshot.pendingQueueEntry?.song.id == snapshot.currentSong?.id else { throw PersistenceError.invalidData }
         return try transaction {

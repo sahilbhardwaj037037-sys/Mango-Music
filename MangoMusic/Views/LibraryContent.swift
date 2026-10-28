@@ -28,6 +28,8 @@ struct LibraryContent: View {
             }
             .padding(.horizontal, 24).padding(.top, 22)
 
+            if library.destination == .history { historyControls }
+
             if library.destination == .search {
                 HStack {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
@@ -64,6 +66,15 @@ struct LibraryContent: View {
             case .queue:
                 queueList
             }
+        }
+        .confirmationDialog("Clear all History?", isPresented: Binding(
+            get: { library.isClearHistoryConfirmationPresented },
+            set: { if !$0 { library.cancelClearHistory() } }
+        ), titleVisibility: .visible) {
+            Button("Clear", role: .destructive, action: library.confirmClearHistory)
+            Button("Cancel", role: .cancel, action: library.cancelClearHistory)
+        } message: {
+            Text("This removes all listening history. Favorites, Queue, playlists, and music files are preserved.")
         }
         .onChange(of: library.searchFocusRequest) { _, _ in searchFocused = true }
         .onChange(of: library.searchState) { _, state in
@@ -135,6 +146,42 @@ struct LibraryContent: View {
         }
     }
 
+    private var historyControls: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack {
+                historyPolicyPickers
+                Spacer(minLength: 8)
+                clearHistoryButton
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                historyPolicyPickers
+                clearHistoryButton
+            }
+        }
+        .padding(.horizontal, 24)
+    }
+
+    private var historyPolicyPickers: some View {
+        HStack {
+            Picker("Auto-cleanup", selection: Binding(get: { library.historyRetention }, set: library.setHistoryRetention)) {
+                ForEach(HistoryRetention.allCases) { Text($0.label).tag($0) }
+            }
+            .fixedSize()
+            .accessibilityLabel("Automatic History cleanup")
+            Picker("Keep", selection: Binding(get: { library.historyLimit }, set: library.setHistoryLimit)) {
+                ForEach(HistoryLimit.allCases) { Text($0.label).tag($0) }
+            }
+            .fixedSize()
+            .accessibilityLabel("Maximum History entries")
+        }
+    }
+
+    private var clearHistoryButton: some View {
+        Button("Clear History…", role: .destructive, action: library.requestClearHistory)
+            .disabled(library.history.isEmpty || !library.canEditLibrary)
+            .accessibilityLabel("Clear all History")
+    }
+
     @ViewBuilder private var historyList: some View {
         if library.history.isEmpty {
             emptyState("Your listening story starts here", symbol: "clock", detail: "Songs you play will appear here.")
@@ -142,7 +189,9 @@ struct LibraryContent: View {
             List(selection: $selection) {
                 ForEach(library.history) { entry in
                     VStack(alignment: .leading, spacing: 2) {
-                        SongRow(song: entry.song, library: library)
+                        SongRow(song: entry.song, library: library, deleteFromHistory: {
+                            library.deleteHistoryEntry(entry.id)
+                        })
                         Text(entry.playedAt, format: .dateTime.hour().minute())
                             .font(.caption2).foregroundStyle(.secondary).padding(.leading, 28)
                     }
@@ -154,6 +203,10 @@ struct LibraryContent: View {
             .onKeyPress(.return) {
                 guard let entry = library.history.first(where: { $0.id.uuidString == selection }) else { return .ignored }
                 library.play(entry.song); return .handled
+            }
+            .onDeleteCommand {
+                guard let entry = library.history.first(where: { $0.id.uuidString == selection }) else { return }
+                library.deleteHistoryEntry(entry.id); selection = nil
             }
         }
     }

@@ -1,4 +1,4 @@
-# Mango Music architecture — Checkpoint 7, Phase 1
+# Mango Music architecture — Checkpoint 7, Phase 1.5
 
 ## Repeat and Favorites sequence
 
@@ -11,6 +11,16 @@ Previous retains its existing seek-to-start behavior above three seconds. Earlie
 Every transition goes through the existing generation invalidation and serialized resolver/player tasks. Duplicate EOF and stale remote commands cannot advance again. A repeat is a fresh resolved attempt and counts History only after audio starts. EOF before a positive clock fails visibly. Resolution/decoder/IPC errors stop with Retry; no automatic retry, skipping, or repeat loop occurs. Next can explicitly bypass an unavailable favorite. Failed unstarted manual selections retain the existing queue-recovery behavior.
 
 `repeatMode` is an Off/One/All raw string in the injected UserDefaults, with missing/invalid values defaulting to Off. Changing modes immediately refreshes media-command availability. SwiftUI uses SF Symbols, an active color/background, help, and VoiceOver value. Existing current-row highlighting also identifies the playing favorite. No SQLite migration, new database, stream persistence, engine/runtime-discovery, media registration, or window-lifecycle change is needed.
+
+## Phase 1.5 — History management
+
+History deletion is centralized in `MusicLibrary`. A row deletion matches its stable History UUID; Clear requires a pending confirmation with explicit Cancel/Clear actions. Mutations optimistically update only History, then use the existing coalescing writer and revision-checked SQLite snapshot transaction. Referenced song metadata is retained through Favorites/Queue/session foreign keys. No audio files are accessed, no schema migration is required, and active playlist/cursor, pending queue selections, playback generation, and the current attempt's History-recorded flag are untouched. Consequently deleting the current row does not recreate it on the next position update; a later new play can create a fresh row/count.
+
+`historyRetention` and `historyLimit` are validated raw strings in the injected UserDefaults. Missing/unknown values choose Never/Unlimited, replacing the old automatic 100-song cap without removing any previously saved entries. Retention choices are Never, 7, 30, or 90 elapsed 24-hour days since last play. Count choices are Unlimited, 100, or 500 distinct songs. Cleanup removes age-expired rows (timestamp at or before cutoff), then trims the oldest remaining rows, preserving newest-first order and stable identities. Preference changes apply immediately. Cleanup also runs after restoration and before/after recording a newly started track, ensuring expired counts do not carry into a new play.
+
+A cancellable, weakly capturing main-actor task schedules the oldest row's expiry, rechecking at least daily for wall-clock changes. It needs no open window or new playback. Successful/attempted quit and shutdown cancel scheduling; a failed persistence flush re-enables it. While closed there is no background service; the next restoration applies the policy. Restoring/closing guards prevent edits to incomplete or closing state. Never/Unlimited performs no age/count deletion. Raising limits does not resurrect removed rows. Defaults do not recover entries already evicted by older builds.
+
+SQLite schema v2, migration/rollback, bound SQL, serialized saves, revision conflicts, and corruption handling remain unchanged. Only the old History-specific 10,000-row save guard is removed to support Unlimited honestly; Favorites/Queue retain their existing caps. The SQL progress deadline and resource limits still apply, reporting a visible unsaved error and preserving the prior transaction on failure. Unlimited is not a claim of unbounded memory or constant-time full-snapshot saves. Tests cover a 10,002-entry persisted/reopened History and deletion failure/retry using isolated settings/databases.
 
 ## Native playback
 
@@ -50,7 +60,7 @@ On failure, the last committed database and in-memory edits remain, a fixed erro
 
 ## History and queue semantics
 
-A play is counted on the first positive mpv position after file-loaded while playing. File-loaded alone, selection/queuing, or a failed start does not count. History has one row per song, stable row UUID, most recent timestamp, and accumulated count, with the latest 100 distinct songs retained. Pause/resume, seek, and Retry in the same selected attempt do not increment again. An explicit Play after Stop/completion or a new selection starts a new counting attempt. Removing an old row under retention also removes its prior count. There is no new Clear History action.
+A play is counted on the first positive mpv position after file-loaded while playing. File-loaded alone, selection/queuing, or a failed start does not count. History has one row per song, stable row UUID, most recent timestamp, and accumulated count, with configurable age/count retention (Never/Unlimited by default). Pause/resume, seek, and Retry in the same selected attempt do not increment again. An explicit Play after Stop/completion or a new selection starts a new counting attempt. Removing an old row under retention also removes its prior count. Individual removal and confirmed Clear History are available in Phase 1.5.
 
 Upcoming entries have stable UUIDs, allowing intentional duplicate songs. Play Next prepends, Add appends, and reorder/remove/clear persist. Direct search playback leaves the upcoming queue intact. Selecting a queued entry removes it from upcoming and retains its UUID/song in `session` until real playback starts. A failed/interrupted unstarted selection is put back at the front when switching away/Stop/quit/restoration, with UUID deduplication; if it was already present its order is preserved. While stopped that reference allows Play to consume the same recovered entry once. Removing/clearing that recovered upcoming item clears its recovery reference. Clear Queue otherwise affects upcoming items, not an active selection.
 
