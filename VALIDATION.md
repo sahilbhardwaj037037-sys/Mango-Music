@@ -23,6 +23,20 @@ xcodebuild -project MangoMusic.xcodeproj -scheme MangoMusic \
   -derivedDataPath .build/Phase15DerivedData CODE_SIGNING_ALLOWED=NO build
 ```
 
+## User-performed Phase 1.5 manual results
+
+The user reports that all five tests below passed in Xcode for Phase 1.5 implementation commit `e1e7a487a5b31b225ce2521da47c5c78d78ea13e`. These are user-performed manual observations, separate from the automated results above; Codex did not perform or infer these GUI checks.
+
+| Manual test | User-reported result |
+| --- | --- |
+| Individual History Delete | PASS |
+| Clear History / Cancel | PASS |
+| Clear History / Confirm | PASS |
+| Auto-cleanup Settings and Persistence | PASS |
+| History Limits and Persistence | PASS |
+
+This report confirms these five checks only. It does not independently establish VoiceOver, narrow-window layout, elapsed-day expiry, background-window behavior, audible output, device controls, or process cleanup. No tests/builds were rerun for this documentation-only finalization. The installed app, real user data, and pre-existing shared scheme edits were not changed.
+
 ## Phase 1.5 manual testing
 
 Use the isolated Xcode launch instructions in the Phase 1 section below; the pre-existing local scheme already points both HOME and CFFIXED_USER_HOME to `.build/phase1-manual-home`. Quit the installed app normally first. Keep both environment variables enabled, select MangoMusic → My Mac → Debug, and Cmd+R. Never run manual tests against the real user library.
@@ -32,7 +46,7 @@ Use the isolated Xcode launch instructions in the Phase 1 section below; the pre
 3. Change Auto-cleanup through Never/7/30/90 days and Keep through Unlimited/100/500 songs. Quit/relaunch to verify selections persist. Automated fixtures cover old dates and large collections; do not change the system clock or real database to fabricate manual cases. Choosing stricter policies immediately removes eligible older test rows; loosening them cannot restore deleted entries.
 4. Verify keyboard navigation, VoiceOver labels, confirmation dismissal/Cancel/Clear, narrow-window controls, background playback/window reopening, and Control Center controls. Recheck repeat/Favorites/queue behavior and no autoplay on relaunch.
 
-Human Phase 1.5 UI, confirmation interaction, accessibility, and audible checks remain pending. Unlimited retains all rows subject to system resources and the existing SQL deadline; save errors retain the prior committed database and show Retry. Cleanup uses elapsed 24-hour days since the most recent play and runs on reopening after the app was closed. No app was launched for testing by this implementation, no real user data was opened/modified, `/Applications/Mango Music.app` was untouched, and no packaging/install/release or Phase 2 work was performed.
+The five user-performed History checks above now pass; additional accessibility, audible, and other checklist items not included in that report remain manually unverified. Unlimited retains all rows subject to system resources and the existing SQL deadline; save errors retain the prior committed database and show Retry. Cleanup uses elapsed 24-hour days since the most recent play and runs on reopening after the app was closed. No app was launched for testing by this implementation, no real user data was opened/modified, `/Applications/Mango Music.app` was untouched, and no packaging/install/release or Phase 2 work was performed.
 
 ---
 
