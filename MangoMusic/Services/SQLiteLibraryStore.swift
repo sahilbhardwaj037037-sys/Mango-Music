@@ -2,7 +2,7 @@ import Foundation
 import SQLite3
 
 /// All SQLite handles/statements are confined to this actor, never to SwiftUI's main actor.
-actor SQLiteLibraryStore: LibraryPersisting {
+actor SQLiteLibraryStore: LibraryPersisting, DownloadPersisting {
     static var defaultURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("MangoMusic", isDirectory: true).appendingPathComponent("library.sqlite3")
@@ -24,6 +24,10 @@ actor SQLiteLibraryStore: LibraryPersisting {
     func load() throws -> LibrarySnapshot { try connection().load() }
     func save(_ snapshot: LibrarySnapshot, expecting revision: Int) throws -> Int {
         try connection().save(snapshot, expecting: revision)
+    }
+    func loadDownloads() throws -> DownloadSnapshot { try connection().loadDownloads() }
+    func saveDownloads(_ records: [DownloadRecord], expecting revision: Int) throws -> Int {
+        try connection().saveDownloads(records, expecting: revision)
     }
     func close() { database = nil; closed = true }
 }
@@ -139,9 +143,9 @@ private final class LibraryDatabase {
     }
     private func migrate() throws {
         let version = try rows("PRAGMA user_version").first?.first?.integer ?? -1
-        guard version <= 2 else { throw PersistenceError.newerSchema }
+        guard version <= 3 else { throw PersistenceError.newerSchema }
         guard version >= 0 else { throw PersistenceError.unrecognizedSchema }
-        if version == 2 { try verifySchema(); return }
+        if version == 3 { try verifySchema(); return }
         guard !readOnly else { throw PersistenceError.writeFailed }
         try transaction {
             if version == 0 {
@@ -165,10 +169,24 @@ private final class LibraryDatabase {
                 try execute("INSERT INTO session(id) VALUES(1)")
                 try execute("PRAGMA user_version = 1")
             }
-            // Version 1 -> 2 preserves all rows and assigns existing history a first play.
-            try execute("ALTER TABLE history ADD COLUMN play_count INTEGER NOT NULL DEFAULT 1 CHECK(play_count>0)")
-            try execute("CREATE INDEX history_recent ON history(played_at DESC, video_id)")
-            try execute("PRAGMA user_version = 2")
+            if version < 2 {
+                try execute("ALTER TABLE history ADD COLUMN play_count INTEGER NOT NULL DEFAULT 1 CHECK(play_count>0)")
+                try execute("CREATE INDEX history_recent ON history(played_at DESC, video_id)")
+            }
+            // Independent metadata survives History eviction and collection snapshot replacement.
+            try execute("""
+                CREATE TABLE downloads (
+                  video_id TEXT PRIMARY KEY NOT NULL CHECK(length(video_id)=11 AND video_id NOT GLOB '*[^A-Za-z0-9_-]*'),
+                  source_url TEXT NOT NULL, title TEXT NOT NULL CHECK(length(title)>0), artist TEXT NOT NULL,
+                  duration REAL, attempt_id TEXT NOT NULL, status TEXT NOT NULL,
+                  relative_path TEXT UNIQUE, format TEXT, file_size INTEGER NOT NULL CHECK(file_size>=0),
+                  downloaded_at REAL, checksum TEXT, error TEXT,
+                  CHECK(status IN ('queued','downloading','validating','complete','cancelled','failed','interrupted','missing','deleting')),
+                  CHECK(status!='complete' OR (relative_path IS NOT NULL AND format IS NOT NULL AND file_size>0 AND downloaded_at IS NOT NULL AND checksum IS NOT NULL)))
+                """)
+            try execute("CREATE TABLE download_state (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL CHECK(revision>=0))")
+            try execute("INSERT INTO download_state VALUES(1,0)")
+            try execute("PRAGMA user_version = 3")
             try verifySchema()
         }
     }
@@ -180,6 +198,8 @@ private final class LibraryDatabase {
             _ = try rows("SELECT entry_id,video_id,position FROM queue LIMIT 0")
             guard try rows("SELECT id FROM session WHERE id=1").count == 1 else { throw PersistenceError.unrecognizedSchema }
             _ = try rows("SELECT current_video_id,pending_entry_id,pending_video_id,revision FROM session LIMIT 0")
+            _ = try rows("SELECT video_id,source_url,title,artist,duration,attempt_id,status,relative_path,format,file_size,downloaded_at,checksum,error FROM downloads LIMIT 0")
+            guard try rows("SELECT revision FROM download_state WHERE id=1").first?.first?.integer != nil else { throw PersistenceError.unrecognizedSchema }
         } catch { throw PersistenceError.unrecognizedSchema }
     }
     private func videoID(_ song: Song) throws -> String {
@@ -279,4 +299,59 @@ private final class LibraryDatabase {
             return revision + 1
         }
     }
+    func loadDownloads() throws -> DownloadSnapshot {
+        operationDeadline = Date().addingTimeInterval(3); defer { operationDeadline = .distantFuture }
+        var snapshot = DownloadSnapshot()
+        snapshot.revision = try rows("SELECT revision FROM download_state WHERE id=1").first?.first?.integer ?? 0
+        snapshot.records = try rows("SELECT video_id,source_url,title,artist,duration,attempt_id,status,relative_path,format,file_size,downloaded_at,checksum,error FROM downloads ORDER BY downloaded_at DESC,video_id").map { row in
+            guard let raw = row[0].text, let source = row[1].text.flatMap(URL.init(string:)),
+                  source.absoluteString == "https://www.youtube.com/watch?v=\(raw)",
+                  let title = row[2].text, let artist = row[3].text,
+                  let attempt = row[5].text.flatMap(UUID.init(uuidString:)),
+                  let status = row[6].text.flatMap(DownloadStatus.init(rawValue:)), let size = row[9].integer, size >= 0 else { throw PersistenceError.invalidData }
+            let song = Song(id: "youtube:\(raw)", title: title, artist: artist, duration: row[4].number ?? 0, durationKnown: row[4] != .null)
+            _ = try videoID(song)
+            guard row[4] == .null || row[4].number != nil else { throw PersistenceError.invalidData }
+            if let path = row[7].text, !ManagedDownloadFiles.validRelativePath(path, attempt: attempt, videoID: raw) { throw PersistenceError.invalidData }
+            if status == .complete {
+                guard row[7].text != nil, row[8].text?.isEmpty == false, size > 0, row[10].number != nil,
+                      let hash = row[11].text, hash.count == 64, hash.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { throw PersistenceError.invalidData }
+            }
+            if let value = row[10].number, !value.isFinite { throw PersistenceError.invalidData }
+            return DownloadRecord(song: song, sourceURL: source, attempt: attempt, status: status,
+                relativePath: row[7].text, format: row[8].text, fileSize: Int64(size),
+                downloadedAt: row[10].number.map(Date.init(timeIntervalSince1970:)), checksum: row[11].text, error: row[12].text)
+        }
+        return snapshot
+    }
+
+    func saveDownloads(_ records: [DownloadRecord], expecting revision: Int) throws -> Int {
+        operationDeadline = Date().addingTimeInterval(3); defer { operationDeadline = .distantFuture }
+        guard records.count <= 10_000, Set(records.map(\.id)).count == records.count,
+              revision >= 0, revision < Int.max else { throw PersistenceError.invalidData }
+        return try transaction {
+            guard try rows("SELECT revision FROM download_state WHERE id=1").first?.first?.integer == revision else { throw PersistenceError.conflict }
+            try execute("DELETE FROM downloads")
+            for record in records {
+                let raw = try videoID(record.song)
+                guard record.sourceURL.absoluteString == "https://www.youtube.com/watch?v=\(raw)", record.fileSize >= 0,
+                      record.downloadedAt.map({ $0.timeIntervalSince1970.isFinite }) ?? true else { throw PersistenceError.invalidData }
+                if record.status == .complete {
+                    guard let hash = record.checksum, hash.count == 64, hash.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { throw PersistenceError.invalidData }
+                }
+                if let path = record.relativePath {
+                    guard ManagedDownloadFiles.validRelativePath(path, attempt: record.attempt, videoID: raw) else { throw PersistenceError.invalidData }
+                }
+                try execute("INSERT INTO downloads VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", [
+                    .text(raw), .text(record.sourceURL.absoluteString), .text(record.song.title), .text(record.song.artist),
+                    record.song.durationKnown ? .real(record.song.duration) : .null, .text(record.attempt.uuidString), .text(record.status.rawValue),
+                    record.relativePath.map(SQLValue.text) ?? .null, record.format.map(SQLValue.text) ?? .null, .integer(Int(record.fileSize)),
+                    record.downloadedAt.map { .real($0.timeIntervalSince1970) } ?? .null,
+                    record.checksum.map(SQLValue.text) ?? .null, record.error.map(SQLValue.text) ?? .null])
+            }
+            try execute("UPDATE download_state SET revision=? WHERE id=1", [.integer(revision+1)])
+            return revision+1
+        }
+    }
+
 }

@@ -52,7 +52,13 @@ struct PlaybackBar: View {
                 Toggle("Autoplay", isOn: Binding(get: { library.autoplayEnabled }, set: library.setAutoplayEnabled))
                     .toggleStyle(.switch).fixedSize()
                     .accessibilityLabel("Smart Autoplay")
+                    .disabled(library.offlineMode)
                     .help("Continue with YouTube Mix songs after your queue and Favorites finish. Search is used if Mix is unavailable. Stop always stops playback.")
+                Toggle("Offline Mode", isOn: Binding(get: { library.offlineMode }, set: library.setOfflineMode))
+                    .toggleStyle(.switch).fixedSize()
+                    .help("Stops current playback and cancels downloads. Only downloaded files play; Search and YouTube Mix stay offline.")
+                    .accessibilityLabel("Offline Mode")
+                if library.isPlayingLocal { Image(systemName: "internaldrive").help("Playing a downloaded file").accessibilityLabel("Playing downloaded audio") }
                 if let source = library.currentRecommendationSource {
                     Text(source.label).font(.caption).foregroundStyle(.secondary)
                 }

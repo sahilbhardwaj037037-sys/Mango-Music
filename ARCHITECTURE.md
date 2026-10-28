@@ -1,4 +1,20 @@
-# Mango Music architecture — Checkpoint 7, Phase 2B
+# Mango Music architecture — Checkpoint 7, Phase 3B
+
+## Downloads ownership, storage and local-first playback
+
+The application factory shares one `SQLiteLibraryStore` between `MusicLibrary` and the main-actor observable `DownloadManager`. `DownloadPersisting`, `AudioDownloading` and `AudioFileValidating` are injectable boundaries; tests supply temporary databases/roots and isolated settings. Downloads use independent metadata/revision transactions, so coalesced collection snapshots neither erase download records nor conflict with their own manager. Song metadata is copied into downloads rather than referencing the prunable `songs` table.
+
+`DownloadManager` has one worker. Enqueue deduplicates stable IDs; each explicit retry receives a fresh UUID. State transitions are queued → downloading → validating → complete, with cancelled/failed/interrupted/missing/deleting states. A coalescing writer persists attempts before network IO and persists the validated intended path before publication. Only a complete record with timestamp, size, format and hash can resolve locally. Progress callbacks match both ID and attempt/status. Cancellation terminates/drains the owned process group before staging removal or another job; deletion waits for the same worker. Quit cancels queued/active attempts and awaits worker/write completion; failed saves cancel quit and offer Retry. Restart marks active rows interrupted, checks completed bytes/hash, finishes pending deletions and never starts downloads automatically.
+
+`ManagedDownloadFiles` owns a private 0700 `Downloads` root and an exclusive nonblocking `.lock` advisory lease, claimed before loading/reconciling metadata. File descriptors and `openat`/`O_NOFOLLOW` reject root/subdirectory symlinks and traversal; the root inode is checked on reuse. Paths are strictly `media/<validated-video-ID>-<attempt-UUID>.<allowed-extension>`, never display titles or supplied absolute paths. Download bytes stay in `staging/<UUID>`; validation precedes exclusive `linkat` publication and file/directory fsync. Final files are 0600. Publication cannot overwrite an existing path; cleanup only addresses managed entries. Hashing and filesystem work run on the files actor, away from SwiftUI. Hash checks repeat at startup and local resolution; large libraries can take time to check.
+
+`DownloadProcessRunner` uses argument arrays and `posix_spawn` with a private process group, bounded output buffers, periodic budget/free-space checks, and a 900-second default deadline. Cancel sends TERM, then KILL after one second, reaps the parent and drains pipes. No shell, cookies, user yt-dlp configuration, plugins, persistent yt-dlp cache or resume-in-place is enabled. Retries are explicit fresh attempts, with bounded downloader transport/fragment retries. Limits are 512 MiB per attempt, 5 GiB managed logical bytes including staging, and 256 MiB free reserve. Size checks are sampled, so a fast write can transiently exceed a threshold before termination. The displayed storage total counts complete records, while admission counts actual managed files (including leftover bytes).
+
+`YTAudioDownloadService` selects audio-only native HLS first, then M4A, then other best audio. With no conversion executables it disables fixups and uses native HLS/MPEG-TS; extension is not treated as proof of container. `MPVAudioFileValidator` starts a separate bounded null-output decoder, requires a positive audio clock, known finite duration up to six hours, no non-artwork video, and a self-contained container. It rejects remote playlists; only file protocols and no external references are allowed. This probes decode/start, not a full-duration corruption scan. `VerifiedConversionTools` accepts native executable ffmpeg/ffprobe in the same directory; packaged lookup fails closed within the bundle. Verified tools enable conditional conversion of otherwise unsupported containers to AAC/M4A. Static FFmpeg libraries within mpv are never treated as command-line tools. No helper dependencies or packaging manifests changed.
+
+`LocalFirstAudioResolver` waits for restoration, verifies the completed local file, then uses ordinary streaming only when the shared synchronous `PlaybackNetworkPolicy` allows it. Missing/damaged downloads become missing and are unavailable offline; online fallback does not silently redownload them. Local `loadfile` commands use per-file lavf protocol restrictions without changing later streaming commands. `MusicLibrary` persists strict-boolean `offlineMode`; switching cancels Search/playback/recommendations and stops transport. Offline guards also cover recommendation prefetch/advance and Next capability. The existing generation invalidation rejects late online results. New downloads are cancelled/blocked offline; leaving offline requires explicit Play/Retry. Existing Repeat/manual-queue/Favorites order and media command/lifecycle ownership remain unchanged.
+
+SwiftUI adds `DownloadAction` to `SongRow`, `DownloadsView` to the sidebar, confirmation-based managed-file deletion/clear, progress/status/error/retry displays and completed storage totals. The Offline Mode switch is next to Autoplay under the transport. Deleting a currently playing local download through this UI stops it first. The existing library and download persistence banners separately expose errors and Retry.
 
 ## Repeat and Favorites sequence
 
@@ -56,7 +72,7 @@ The Debug location is `~/Library/Application Support/MangoMusic/library.sqlite3`
 
 ## Schema and migrations
 
-`PRAGMA user_version` is 2. Timestamps are real Unix seconds; optional durations are seconds/NULL. The in-memory identifier is `youtube:<11-character ID>`; the database stores the validated raw eleven-character ID.
+`PRAGMA user_version` is 3. Timestamps are real Unix seconds; optional durations are seconds/NULL. The in-memory identifier is `youtube:<11-character ID>`; the database stores the validated raw eleven-character ID.
 
 | Table | Key and contents |
 | --- | --- |
@@ -64,11 +80,13 @@ The Debug location is `~/Library/Application Support/MangoMusic/library.sqlite3`
 | `favorites` | `video_id` primary key/foreign key; `added_at` |
 | `history` | `video_id` primary key/foreign key; unique row UUID `entry_id`, `played_at`, positive `play_count` |
 | `queue` | UUID `entry_id` primary key; song foreign key; unique contiguous nonnegative `position` |
+| `downloads` | Raw stable video ID primary key; canonical source, copied title/artist/duration, attempt UUID, status, unique managed path, actual format, bytes, timestamp, SHA-256, safe error |
+| `download_state` | Singleton independent nonnegative downloads revision |
 | `session` | Singleton `id=1`; optional current song; optional pending queue UUID/song pair; nonnegative `revision` |
 
 `history_recent(played_at DESC, video_id)` supports recent-first ordering with deterministic timestamp ties. The primary/unique indexes support song references, favorite deduplication, queue identity, and position. Foreign-key/integrity checks and decoded-value validation reject broken data rather than silently dropping rows.
 
-A fresh empty version-0 database creates the internal version-1 schema and migrates to version 2 in one transaction. Version 1 → 2 adds `play_count` with default 1 for existing History rows and the recent-history index, preserving data. Version 1 is an internal migration baseline, not a database shipped in Checkpoint 3. Schema verification runs before commit. Failed migrations roll back; future versions and unrecognized nonempty version-0 files are refused. No corruption recovery path deletes, renames, resets, or replaces the user's database automatically. Preserve a closed-app backup of the complete folder, including any sidecars.
+A fresh empty version-0 database creates the internal version-1 schema and migrates to version 3 in one transaction. Version 2 → 3 adds independent downloads and download_state tables without replacing any collection/session rows. Older schema-v2 applications refuse v3 safely; this is forward migration, not downgrade support. Version 1 → 2 adds `play_count` with default 1 for existing History rows and the recent-history index, preserving data. Version 1 is an internal migration baseline, not a database shipped in Checkpoint 3. Schema verification runs before commit. Failed migrations roll back; future versions and unrecognized nonempty version-0 files are refused. No corruption recovery path deletes, renames, resets, or replaces the user's database automatically. Preserve a closed-app backup of the complete folder, including any sidecars.
 
 ## Serialized saves and errors
 

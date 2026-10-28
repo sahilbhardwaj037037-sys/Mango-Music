@@ -65,6 +65,9 @@ struct LibraryContent: View {
                 historyList
             case .queue:
                 queueList
+            case .downloads:
+                if let downloads = library.downloads { DownloadsView(library: library, downloads: downloads) }
+                else { emptyState("Downloads unavailable", symbol: "arrow.down.circle", detail: "Open the application to manage downloads.") }
             }
         }
         .confirmationDialog("Clear all History?", isPresented: Binding(

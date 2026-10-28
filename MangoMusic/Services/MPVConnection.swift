@@ -11,16 +11,22 @@ struct MPVMessage: Sendable {
     var entry: Int?
     var request: Int?
     var success = true
+    var textValue: String?
+    var audioTracks: Int?
+    var videoTracks: Int?
 
     static func decode(_ data: Data) throws -> Self {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               object["event"] is String || object["request_id"] is Int else { throw PlaybackError.protocolError }
         if object["request_id"] != nil, !(object["error"] is String) { throw PlaybackError.protocolError }
         let value = object["data"] as? NSNumber
+        let tracks = object["data"] as? [[String: Any]]
         return Self(event: object["event"] as? String, name: object["name"] as? String,
                     number: value?.doubleValue, flag: value?.boolValue, reason: object["reason"] as? String,
                     entry: object["playlist_entry_id"] as? Int, request: object["request_id"] as? Int,
-                    success: (object["error"] as? String ?? "success") == "success")
+                    success: (object["error"] as? String ?? "success") == "success", textValue: object["data"] as? String,
+                    audioTracks: tracks.map { $0.filter { $0["type"] as? String == "audio" }.count },
+                    videoTracks: tracks.map { $0.filter { $0["type"] as? String == "video" && $0["albumart"] as? Bool != true }.count })
     }
 }
 
@@ -77,8 +83,11 @@ actor MPVConnection {
     private var failure: (@Sendable (UUID, PlaybackError) -> Void)?
     private let executable: URL?
     private let audioOutput: String?
+    private let localFilesOnly: Bool
 
-    init(executable: URL? = nil, audioOutput: String? = nil) { self.executable = executable; self.audioOutput = audioOutput }
+    init(executable: URL? = nil, audioOutput: String? = nil, localFilesOnly: Bool = false) {
+        self.executable = executable; self.audioOutput = audioOutput; self.localFilesOnly = localFilesOnly
+    }
 
     func start(sink: @escaping @Sendable (UUID, MPVMessage) -> Void,
                failure: @escaping @Sendable (UUID, PlaybackError) -> Void) async throws {
@@ -98,6 +107,7 @@ actor MPVConnection {
         let child = Process()
         child.executableURL = tool
         child.arguments = Self.arguments(socketPath: socketPath, audioOutput: audioOutput, scriptingAvailable: !tool.deletingLastPathComponent().path.hasSuffix(".app/Contents/MacOS"))
+        if localFilesOnly { child.arguments! += ["--demuxer=lavf", "--demuxer-lavf-o=protocol_whitelist=file", "--access-references=no", "--autoload-files=no"] }
         child.standardInput = FileHandle.nullDevice
         child.standardOutput = FileHandle.nullDevice
         child.standardError = FileHandle.nullDevice

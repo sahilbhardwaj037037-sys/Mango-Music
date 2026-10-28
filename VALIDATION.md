@@ -1,3 +1,70 @@
+# Mango Music — Phase 3B Offline Downloads validation
+
+Validation date: 29 October 2026, Asia/Kolkata. This section supersedes earlier scope/schema statements for the current implementation; earlier phase evidence below remains historical.
+
+## Safety and implementation
+
+Started on `main`, synchronized with `origin/main` at `5a80452e45047c1b6af6e4c654d59e0456c5529e`, with no unpushed commits. The pre-existing shared Xcode scheme has been preserved byte-for-byte (Git blob `9ca951e610568feed117ad46ec37d2097105d1e0`) and is excluded from this change's commit. It is the expected remaining working-tree modification after commit.
+
+Implemented one-worker downloads/progress/cancel/retry, private staging and exclusive atomic publication, decoder/hash validation, managed storage budgets, independent SQLite v3 download metadata, restart reconciliation, confirmation-based Downloads deletion/clear, local-first resolution and persisted Offline Mode. Collection/session saves retain existing Favorites, History, Queue and recovery semantics. No real user database/preferences were opened by tests, no installed app was modified/launched, no new package or installation was produced, and no later phase began. Only generated owned audio was downloaded. Existing staged binaries were reused read-only.
+
+## Automated results
+
+- Complete suite with local mpv, native media and generated-download integrations: **157 discovered test declarations in 20 suites, passing runner result**. Three live-only declarations were disabled in this batch and exercised separately below; Swift Testing's displayed total includes disabled declarations. This adds 24 declarations to the preceding 133-test suite. Parameterized declarations include multiple cases.
+- Separately enabled live regressions: **three public-video playback cases passed** (`dQw4w9WgXcQ`, `jNQXAC9IVRw`, `9bZkp7q19f0`); **YouTube search/manual queue passed**; **YouTube Mix EOF transition with persistent mpv passed**. These stream to null output; they are not audio downloads, audible UI observations, or proof of service-wide reliability.
+- Xcode Debug: **BUILD SUCCEEDED**, arm64, signing disabled only for the command; derived data under ignored `.build/Phase3BDerivedData`. No application was run by the build. The ordinary AppIntents metadata-extraction warning does not affect this app. A current SDK deprecation warning for the macOS-14-compatible spawn chdir API is retained.
+- Native schema-v2 → v3 migration preserves seeded Favorites, History/counts, Queue order/identities and session metadata. Independent download/library revisions do not conflict with one another; stale download revisions roll back. Version-1/newer/unknown/corrupt database regression checks remain included. Every database is temporary.
+- Download fixtures cover lifecycle/progress, one worker, duplicate prevention, cancellation/late callbacks, retry, validation failure, no-overwrite publication conflicts, checksum corruption/missing files, deletion/clear preserving collections, startup interruption cleanup/no auto-resume, offline preference and no-online-call boundaries, offline Queue/Favorites/Repeat/Shuffle ordering with Autoplay enabled, quit cancellation, failed-save/quit/retry, unsafe paths/symlinks, exclusive folder ownership, budgets and restricted packaged conversion discovery.
+- Real POSIX subprocess tests verify cancellation kills owned descendants and bounded timeout/admission failures. Raw yt-dlp diagnostics and signed stream references are not committed.
+
+Commands (all outputs/data under ignored development or temporary directories):
+
+```sh
+MANGO_PACKAGED_APP="$PWD/.build/packaging/output/Mango Music.app" \
+  MANGO_MPV_INTEGRATION=1 MANGO_NATIVE_MEDIA_INTEGRATION=1 \
+  MANGO_DOWNLOAD_INTEGRATION=1 Scripts/check.sh
+MANGO_PACKAGED_APP="$PWD/.build/packaging/output/Mango Music.app" \
+  MANGO_YOUTUBE_DIAGNOSTICS=1 \
+  swift test --scratch-path .build/MangoMusicPackage --cache-path .build/cache \
+  --disable-xctest --filter YouTubePlaybackIntegrationTests
+MANGO_PACKAGED_APP="$PWD/.build/packaging/output/Mango Music.app" \
+  MANGO_MIX_INTEGRATION=1 MANGO_YOUTUBE_INTEGRATION=1 \
+  swift test --scratch-path .build/MangoMusicPackage --cache-path .build/cache \
+  --disable-xctest --filter 'MixAutoplayIntegrationTests|MPVIntegrationTests.youtubeManualQueue'
+xcodebuild -project MangoMusic.xcodeproj -scheme MangoMusic \
+  -configuration Debug -destination 'platform=macOS,arch=arm64' \
+  -derivedDataPath .build/Phase3BDerivedData CODE_SIGNING_ALLOWED=NO build
+```
+
+Compiler/plugin execution, localhost servers and native integration use the approved execution environment. Logs: `.build/phase3b-final-tests.log`, `phase3b-live.log`, `phase3b-live-mix-queue.log`, `phase3b-xcode.log`.
+
+An earlier combined batch with all live/source tests enabled failed: generated-download and public streaming timeouts, a Mix deadline, and a timing-sensitive History expiry assertion. No single all-live batch is claimed to pass. Fixture setup was corrected to use async waits rather than blocking the main actor; the final complete local batch and separate bounded live batches above pass. The first HLS fixture also lacked declared audio codecs and was rejected by the strict audio-only selector; a correctly declared audio-only master manifest passes. No production broadening to video downloads was used to bypass that rejection.
+
+## Actual download/offline evidence and limitations
+
+`DownloadIntegrationTests` serves a generated four-second PCM WAV and generated AAC HLS from localhost only. Staged yt-dlp 2026.10.21 runs with its restricted bundle PATH and no conversion executables. HTTP download bytes equal the generated WAV. Native HLS downloads audio fragments into one self-contained file; staged mpv 0.41.0 validates it after the source server stops. FFmpeg is used read-only to **generate the HLS fixture**, not on the downloader's PATH. Corrupt bytes and a remote-reference playlist fail decoder validation. The HTTP integration exercises managed publication and local playback, then ordinary HTTP streaming again in the same persistent mpv process to check per-file restrictions do not stick.
+
+A separate ignored harness compiles the **current** engine/controller/storage sources and runs under `sandbox-exec` with `(deny network*)` except Unix-domain IPC. An IPv4 connect attempt verifies EPERM/EACCES. It plays only the existing Phase 3A generated M4A, Opus, FLAC and WAV tones: positive clocks, pause/seek/resume, one natural EOF per file, same mpv PID, graceful missing-file error, exited owned PID and removed socket directory. Output is null; this proves network-independent decoding/control, not audible output. Local commands/results remain in `.build/phase3b-research` (`run_offline_probe.py`, `offline-results.json`, `offline-formats.json`); none are staged for Git.
+
+**No actual YouTube/HLS recording download was tested.** The generated native-HLS result is fixture evidence, separate from the real-service streaming tests. YouTube format selection, service changes, expiry, restrictions and throttling may still make a download fail. There is no cookie/login/DRM bypass and no automatic retry loop. Available title/channel metadata comes from the selected Song; duration is validated locally. Channel is not verified artist attribution; thumbnails are not downloaded.
+
+Admitted extensions are M4A/MP4, Opus/Ogg/WebM, MP3/AAC, FLAC, WAV and TS; only positively decoded, audio-only self-contained containers become complete. Actual current-engine offline format evidence is M4A/AAC, Ogg Opus, FLAC and PCM WAV; generated HLS supplies AAC in MPEG-TS bytes (yt-dlp may name the file `.mp4`). Other codec/container combinations remain decoder/service dependent. A positive start and checksum are not a full-duration corruption scan.
+
+Standalone conversion requires verified native ffmpeg and ffprobe executables in the bundle. The existing staged app does not provide these; direct playable downloads need no conversion and unsupported containers fail cleanly. Debug can discover existing development helpers. No new conversion tools were installed or bundled. Budgets are 512 MiB/attempt, 5 GiB actual managed bytes, 256 MiB free reserve, 15-minute attempt deadline, 10-second decoder probe, maximum six-hour known duration; disk checks are sampled, not filesystem quotas. Interrupted downloads restart fresh only on explicit Retry. Completed storage shown in the UI excludes incomplete/failed leftovers, but admission counts disk bytes. Full hash checks can delay startup/local resolution for large files. Offline missing favorites/queue entries stop with error/Retry/Next rather than automatically skipping.
+
+Schema v3 is an additive forward migration. Older v2 builds refuse a v3 database safely; do not point the installed older app at the isolated Debug database. User-performed GUI/audible/download/Control Center checks for Phase 3B are pending; earlier manual phase passes do not cover new Downloads behavior.
+
+## Manual Phase 3B checklist — isolated Xcode Debug only
+
+1. Quit the installed app normally. Open the project in Xcode, select MangoMusic / My Mac / Debug. Retain the existing scheme's isolated HOME and CFFIXED_USER_HOME at `/Users/sahilbhardwaj/Developer/MangoMusic/.build/phase1-manual-home`. Run the Debug product with Cmd+R. Never change these to the real home. Confirm no playback/download starts on launch.
+2. Search for content you have permission to download. Use the down-arrow circle beside a song. Confirm queued/progress/cancel and Downloaded states. Repeat the action: no duplicate. Check Downloads sidebar title/channel, file size, completed total and empty state. A real source failure should show a useful error and explicit Retry; it must not appear completed.
+3. Cancel an active/queued job; confirm no completed item and no later unexpected playback. Retry explicitly. Quit during a transfer and relaunch; verify recoverable cancelled/interrupted state without automatic restart. Existing helper tests cover owned subprocess cleanup independently.
+4. Play a completed download online, then enable Offline Mode next to Autoplay. It stops current playback; press Play. Confirm audible local playback, pause/resume/seek/volume, Repeat One/All, Favorites Play All/Shuffle and manual Queue priority. If desired, disconnect the network on this test Mac and confirm playback still works. Restore connectivity afterward. Missing online-only selections must fail clearly, without Mix/search. Turning Offline Mode off must not auto-start playback or downloads.
+5. In Downloads select Delete Download… and Cancel, then confirm deletion. Test Clear Downloads… both ways. Favorites, History and Queue must remain. Deleting the currently playing local download stops it. Check total storage updates. Use only the isolated Debug library for missing/corrupt-file experiments.
+6. Quit/relaunch: verify Downloads and Offline Mode persist, no automatic playback/downloads, and existing Favorites/History/Queue settings survive. Exercise Control Center Play/Pause/Next/Previous, closing/reopening the window, background playback and Cmd+Q. Hardware media controls and actual macOS 14 runtime remain manual checks; no package/install is part of this phase.
+
+---
+
 # Mango Music — Checkpoint 7, Phase 2B validation
 
 28 October 2026, Asia/Kolkata. Started at `db4ce09d4dbf8ab66ff7a83f54af9fc7a95026b4` on main; a fresh fetch confirmed zero commits ahead/behind. The complete ignored Phase 2A report was read before editing. The pre-existing shared scheme modification (blob `9ca951e610568feed117ad46ec37d2097105d1e0`) is preserved and excluded from this implementation commit. It remains the sole expected uncommitted change after finalization.

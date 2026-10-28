@@ -46,7 +46,7 @@ struct SQLitePersistenceTests {
         await store.close()
         let reopened = SQLiteLibraryStore(url: temp.url)
         #expect(try await reopened.load() == snapshot)
-        #expect(try scalar(temp.url, "PRAGMA user_version") == 2)
+        #expect(try scalar(temp.url, "PRAGMA user_version") == 3)
         #expect(try scalar(temp.url, "SELECT count(*) FROM songs") == 1)
         await reopened.close()
     }
@@ -90,11 +90,11 @@ struct SQLitePersistenceTests {
         let entry = HistoryEntry(song: testSong(0), playedAt: Date(timeIntervalSince1970: 1000))
         _ = try await store.save(LibrarySnapshot(history: [entry], queue: [QueueEntry(song: testSong(1))]), expecting: 0)
         await store.close()
-        try fixtureSQL(temp.url, "DROP INDEX history_recent; ALTER TABLE history DROP COLUMN play_count; PRAGMA user_version=1;")
+        try fixtureSQL(temp.url, "DROP TABLE downloads; DROP TABLE download_state; DROP INDEX history_recent; ALTER TABLE history DROP COLUMN play_count; PRAGMA user_version=1;")
         let migrated = SQLiteLibraryStore(url: temp.url)
         let snapshot = try await migrated.load()
         #expect(snapshot.history == [entry]); #expect(snapshot.queue.first?.song == testSong(1))
-        #expect(try scalar(temp.url, "PRAGMA user_version") == 2)
+        #expect(try scalar(temp.url, "PRAGMA user_version") == 3)
         await migrated.close()
     }
     @Test func futureUnknownAndFailedMigrationsPreserveFiles() async throws {

@@ -21,6 +21,7 @@ struct SongRow: View {
             }
             Spacer(minLength: 8)
             Text(song.durationLabel).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            if let downloads = library.downloads { DownloadAction(song: song, downloads: downloads) }
             Button { library.toggleFavorite(song) } label: {
                 Image(systemName: library.favoriteIDs.contains(song.id) ? "heart.fill" : "heart")
                     .foregroundStyle(library.favoriteIDs.contains(song.id) ? Color.pink : Color.secondary)

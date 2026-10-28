@@ -57,7 +57,11 @@ final class MPVPlaybackEngine: AudioPlaying {
             self.onEvent?(request, .failure(PlaybackError.timeout.localizedDescription))
             await self.connection.shutdown()
         }
-        try await connection.command(["loadfile", url.absoluteString, "replace"])
+        if url.isFileURL {
+            // Downloaded media must be self-contained; local files cannot request remote references.
+            try await connection.command(["loadfile", url.absoluteString, "replace", -1,
+                ["demuxer": "lavf", "demuxer-lavf-o": "protocol_whitelist=file", "access-references": "no", "autoload-files": "no"]])
+        } else { try await connection.command(["loadfile", url.absoluteString, "replace"]) }
     }
     func pause(_ paused: Bool) async throws { try await connection.command(["set_property", "pause", paused]) }
     func seek(_ position: Double) async throws { try await connection.command(["seek", max(0, position), "absolute+exact"]) }

@@ -56,6 +56,21 @@ final class MusicLibrary {
     private(set) var historyLimit: HistoryLimit = .unlimited
     private(set) var isClearHistoryConfirmationPresented = false
     @ObservationIgnored private var historyCleanupTask: Task<Void, Never>?
+    let downloads: DownloadManager?
+    @ObservationIgnored private let networkPolicy: PlaybackNetworkPolicy
+    private(set) var offlineMode = false
+    private(set) var isPlayingLocal = false
+
+    func setOfflineMode(_ offline: Bool) {
+        guard !isClosing else { return }
+        offlineMode = offline
+        defaults.set(offline, forKey: "offlineMode")
+        networkPolicy.setOffline(offline)
+        downloads?.setOffline(offline)
+        cancelSearch(); stop()
+        playbackNotice = offline ? "Offline Mode: downloaded songs only. Press Play to continue." : "Online playback enabled. Press Play to continue."
+    }
+
     var currentSong: Song?
     private(set) var isPlaying = false
     private(set) var isLoading = false
@@ -111,7 +126,7 @@ final class MusicLibrary {
     }
 
     private func prefetchRelatedSongs() {
-        guard autoplayEnabled, autoplayArmed, canEditLibrary, !systemSleeping,
+        guard autoplayEnabled, !offlineMode, autoplayArmed, canEditLibrary, !systemSleeping,
               relatedTask == nil, relatedBuffer.isEmpty, let seed = currentSong,
               !requestedSeeds.contains(seed.id) else { return }
         requestedSeeds.append(seed.id)
@@ -152,7 +167,7 @@ final class MusicLibrary {
     }
 
     private func advanceAutoplay(paused: Bool) {
-        guard autoplayEnabled, autoplayArmed, currentSong != nil, automaticFailures < 3 else { stop(); return }
+        guard autoplayEnabled, !offlineMode, autoplayArmed, currentSong != nil, automaticFailures < 3 else { stop(); return }
         let exclusions = recommendationExclusions
         relatedBuffer.removeAll { exclusions.contains($0.id) }
         if !relatedBuffer.isEmpty {
@@ -271,13 +286,19 @@ final class MusicLibrary {
 
     init(defaults: UserDefaults = .standard, searchService: any SongSearching = YouTubeSearchService(),
          resolver: any AudioStreamResolving = AudioStreamResolver(), player: (any AudioPlaying)? = nil,
-         store: (any LibraryPersisting)? = nil, relatedProvider: any RelatedSongProviding = YouTubeMixProvider()) {
+         store: (any LibraryPersisting)? = nil, relatedProvider: any RelatedSongProviding = YouTubeMixProvider(),
+         downloadManager: DownloadManager? = nil) {
+        let policy = downloadManager?.policy ?? PlaybackNetworkPolicy()
+        self.networkPolicy = policy
+        self.downloads = downloadManager
         self.relatedProvider = relatedProvider
         self.store = store
-        self.resolver = resolver
+        self.resolver = LocalFirstAudioResolver(downloads: downloadManager, streaming: resolver, policy: policy)
         self.player = player ?? MPVPlaybackEngine()
         self.searchService = searchService
         self.defaults = defaults
+        offlineMode = (defaults.object(forKey: "offlineMode") as? NSNumber)
+            .flatMap { CFGetTypeID($0) == CFBooleanGetTypeID() ? $0.boolValue : nil } ?? false
         autoplayEnabled = (defaults.object(forKey: "autoplayEnabled") as? NSNumber)
             .flatMap { CFGetTypeID($0) == CFBooleanGetTypeID() ? $0.boolValue : nil } ?? false
         repeatMode = defaults.string(forKey: "repeatMode").flatMap(RepeatMode.init(rawValue:)) ?? .off
@@ -289,6 +310,8 @@ final class MusicLibrary {
            CFGetTypeID(stored) != CFBooleanGetTypeID(), stored.doubleValue.isFinite {
             volume = min(1, max(0, stored.doubleValue))
         } else { volume = 0.7 }
+        policy.setOffline(offlineMode)
+        downloadManager?.setOffline(offlineMode)
         self.player.onEvent = { [weak self] id, event in self?.receive(id, event) }
         if store != nil { restoreLibrary() }
     }
@@ -303,6 +326,7 @@ final class MusicLibrary {
 
     func search() {
         cancelSearch()
+        guard !offlineMode else { results = []; searchState = .failure("Search is unavailable in Offline Mode."); return }
         let term: String
         do { term = try SearchQuery.validate(query) }
         catch {
@@ -405,6 +429,7 @@ final class MusicLibrary {
             recentSelections.append(song.id)
             if recentSelections.count > 50 { recentSelections.removeFirst() }
         }
+        isPlayingLocal = false
         desiredPaused = paused; playbackNotice = nil
         returnPendingEntry()
         if let queueEntry { queue.removeAll { $0.id == queueEntry.id } }
@@ -437,11 +462,12 @@ final class MusicLibrary {
                 let url = try await resolver.resolve(song)
                 try Task.checkCancellation()
                 guard let self, self.playbackID == request else { return }
+                self.isPlayingLocal = url.isFileURL
                 try await player.load(url, request: request, volume: self.volume, paused: paused)
                 try Task.checkCancellation()
             } catch {
                 guard let self, self.playbackID == request, !Task.isCancelled else { return }
-                self.fail((error as? PlaybackError)?.localizedDescription ?? PlaybackError.playback.localizedDescription)
+                self.fail((error as? PlaybackError)?.localizedDescription ?? (error as? DownloadError)?.localizedDescription ?? PlaybackError.playback.localizedDescription)
             }
         }
     }
@@ -574,6 +600,7 @@ final class MusicLibrary {
     }
 
     func shutdown() {
+        downloads?.shutdown()
         resetAutoplaySession()
         historyCleanupTask?.cancel()
         defer { onMediaStateChange?() }
@@ -819,7 +846,8 @@ final class MusicLibrary {
         isClosing = true
         cancelClearHistory(); historyCleanupTask?.cancel()
         cancelSearch(); stop()
-        guard await flushPersistence() else { isClosing = false; scheduleHistoryCleanup(); return false }
+        if let downloads, !(await downloads.prepareToQuit()) { isClosing = false; scheduleHistoryCleanup(); return false }
+        guard await flushPersistence() else { isClosing = false; downloads?.cancelQuit(); scheduleHistoryCleanup(); return false }
         player.shutdown()
         await store?.close()
         pendingQueueEntry = nil // Teardown only; the durable recovery reference is retained.
@@ -839,7 +867,7 @@ final class MusicLibrary {
         if !isLoading, (currentSong != nil || !queue.isEmpty), (ended || playbackError != nil || !loaded || desiredPaused) { commands.insert(.play) }
         if isLoading || (loaded && !ended && playbackError == nil && !desiredPaused) { commands.insert(.pause) }
         if commands.contains(.play) || commands.contains(.pause) { commands.insert(.toggle) }
-        if !queue.isEmpty || nextPlaylistPosition != nil || (autoplayEnabled && autoplayArmed && currentSong != nil) { commands.insert(.next) }
+        if !queue.isEmpty || nextPlaylistPosition != nil || (autoplayEnabled && !offlineMode && autoplayArmed && currentSong != nil) { commands.insert(.next) }
         if !previousSongs.isEmpty || (loaded && !ended && duration > 0 && playbackError == nil) { commands.insert(.previous) }
         if loaded && !ended && playbackError == nil && duration.isFinite && duration > 0 { commands.insert(.seek) }
         if !ended { commands.insert(.stop) }

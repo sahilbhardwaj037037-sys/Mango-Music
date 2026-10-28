@@ -4,7 +4,12 @@ import AppKit
 @main
 struct MangoMusicApp: App {
     @NSApplicationDelegateAdaptor(MusicApplicationDelegate.self) private var delegate
-    @State private var library = MusicLibrary(store: SQLiteLibraryStore())
+    @State private var library = Self.makeLibrary()
+
+    @MainActor private static func makeLibrary() -> MusicLibrary {
+        let store = SQLiteLibraryStore()
+        return MusicLibrary(store: store, downloadManager: DownloadManager(store: store))
+    }
 
     var body: some Scene {
         Window("Mango Music", id: "main") {

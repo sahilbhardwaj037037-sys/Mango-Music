@@ -35,7 +35,7 @@ struct HistoryEntry: Identifiable, Equatable, Sendable {
 }
 
 enum Destination: String, CaseIterable, Identifiable {
-    case search = "Search", queue = "Up Next", favorites = "Favorites", history = "History"
+    case search = "Search", queue = "Up Next", favorites = "Favorites", history = "History", downloads = "Downloads"
     var id: Self { self }
     var symbol: String {
         switch self {
@@ -43,6 +43,7 @@ enum Destination: String, CaseIterable, Identifiable {
         case .queue: "text.line.first.and.arrowtriangle.forward"
         case .favorites: "heart"
         case .history: "clock"
+        case .downloads: "arrow.down.circle"
         }
     }
 }

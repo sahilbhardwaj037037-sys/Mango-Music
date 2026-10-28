@@ -15,6 +15,13 @@ struct MainWindow: View {
                     Spacer()
                 }.padding(10)
             }
+            if let downloads = library.downloads, downloads.hasUnsavedChanges || downloads.persistenceError != nil {
+                HStack {
+                    Text(downloads.persistenceError ?? "Saving Downloads…").font(.caption).foregroundStyle(.secondary)
+                    if downloads.persistenceError != nil { Button("Retry", action: downloads.retryPersistence) }
+                    Spacer()
+                }.padding(10)
+            }
             HStack(spacing: 0) {
                 if library.sidebarVisible {
                     sidebar
