@@ -13,6 +13,14 @@ struct LibraryContent: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(library.destination.rawValue).font(.largeTitle.bold())
                 Spacer()
+                if library.destination == .favorites {
+                    Button { library.playFavorites() } label: { Label("Play All", systemImage: "play.fill") }
+                        .disabled(library.favorites.isEmpty || !library.canEditLibrary)
+                        .accessibilityLabel("Play all Favorites")
+                    Button { library.playFavorites(shuffled: true) } label: { Label("Shuffle", systemImage: "shuffle") }
+                        .disabled(library.favorites.isEmpty || !library.canEditLibrary)
+                        .accessibilityLabel("Shuffle Favorites")
+                }
                 if library.destination == .queue && !library.queue.isEmpty {
                     Button("Clear Queue", role: .destructive) { library.clearQueue() }
                         .buttonStyle(.borderless)
@@ -45,6 +53,10 @@ struct LibraryContent: View {
             case .search:
                 searchContent
             case .favorites:
+                if library.favoritesPlaybackActive {
+                    Text("Favorites playlist active · Up Next plays first")
+                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 24)
+                }
                 songList(library.favorites, emptyTitle: "Keep your favorites close", symbol: "heart",
                          detail: "Tap a heart beside a song to save it here.")
             case .history:

@@ -30,6 +30,17 @@ struct PlaybackBar: View {
                         .accessibilityLabel("Next song")
                 }
                 .buttonStyle(.plain)
+                Button(action: library.cycleRepeatMode) {
+                    Image(systemName: library.repeatMode.symbol)
+                        .foregroundStyle(library.repeatMode == .off ? Color.secondary : Color.pink)
+                        .padding(6)
+                        .background(library.repeatMode == .off ? Color.clear : Color.pink.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .disabled(library.isClosing)
+                .help("\(library.repeatMode.label). Click to change repeat mode.")
+                .accessibilityLabel("Repeat mode")
+                .accessibilityValue(library.repeatMode.label)
                 HStack(spacing: 6) {
                     Image(systemName: "speaker.fill").font(.caption).foregroundStyle(.secondary)
                     Slider(value: Binding(get: { library.volume }, set: { library.setVolume($0) }), in: 0...1).accessibilityLabel("Volume")

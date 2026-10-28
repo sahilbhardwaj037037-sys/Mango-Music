@@ -86,6 +86,41 @@ struct MPVIntegrationTests {
         #expect(restored.queue.isEmpty); #expect(restored.history.count == 2)
         #expect(restored.currentSong?.id == testSong(1).id)
         await reopened.close()
+
+        // Phase 1: real EOF drives repeat and playlist/queue resumption on one owned process.
+        let playlistConnection = MPVConnection(executable: PackagedIntegrationTools.mpv, audioOutput: "null")
+        let playlistPlayer = MPVPlaybackEngine(connection: playlistConnection)
+        let playlist = MusicLibrary(defaults: UserDefaults(suiteName: "MangoPlaylistIntegration.\(UUID())")!,
+                                    resolver: LocalResolver(url: file), player: playlistPlayer)
+        defer { playlist.shutdown() }
+        playlist.toggleFavorite(testSong(0)); playlist.toggleFavorite(testSong(1))
+        playlist.cycleRepeatMode()
+        playlist.playFavorites(); await playlist.playbackTask?.value
+        try await wait { playlist.progress > 0 && playlist.duration > 0 }
+        let playlistPID = try #require(playlistConnection.owner.processIdentifier)
+        playlist.seek(to: 7.5)
+        try await wait { playlist.history.first?.playCount == 2 }
+        #expect(playlist.currentSong?.id == testSong(0).id)
+        #expect(playlistConnection.owner.processIdentifier == playlistPID)
+        playlist.enqueue(testSong(2))
+        playlist.handleMediaCommand(.next, generation: playlist.mediaPlaybackSnapshot.generation)
+        await playlist.playbackTask?.value
+        try await wait { playlist.progress > 0 && playlist.duration > 0 }
+        #expect(playlist.currentSong?.id == testSong(2).id)
+        playlist.cycleRepeatMode() // All; queued song must not enter the loop.
+        playlist.seek(to: 7.5)
+        try await wait { playlist.currentSong?.id == testSong(1).id && playlist.progress > 0 && playlist.duration > 0 }
+        playlist.seek(to: 7.5)
+        try await wait { playlist.currentSong?.id == testSong(0).id && playlist.progress > 0 && playlist.duration > 0 }
+        #expect(playlist.queue.isEmpty)
+        #expect(playlist.history.first(where: { $0.song.id == testSong(2).id })?.playCount == 1)
+        #expect(playlistConnection.owner.processIdentifier == playlistPID)
+        playlist.cycleRepeatMode() // Off; complete the finite snapshot.
+        playlist.seek(to: 7.5)
+        try await wait { playlist.currentSong?.id == testSong(1).id && playlist.progress > 0 && playlist.duration > 0 }
+        playlist.seek(to: 7.5)
+        try await wait { playlist.mediaPlaybackSnapshot.phase == .stopped }
+        await playlistConnection.shutdown()
     }
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["MANGO_YOUTUBE_INTEGRATION"] == "1"))

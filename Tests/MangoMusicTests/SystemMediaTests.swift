@@ -144,6 +144,30 @@ struct SystemMediaTests {
         #expect(adapter.metadata == nil); #expect(player.shutdowns == 1)
         integration.start(); #expect(adapter.registrations == 2); integration.stop()
     }
+    @Test func favoritesNavigationPublishesCommandsAcrossWindowCycles() async throws {
+        let player = MediaPlayerFixture(), library = make(player: player), adapter = MediaAdapterFixture(), lifecycle = LifecycleFixture()
+        let integration = SystemMediaIntegration(library: library, adapter: adapter, lifecycle: lifecycle)
+        let delegate = MusicApplicationDelegate()
+        delegate.attach(library, integration: integration)
+        library.toggleFavorite(testSong(0)); library.toggleFavorite(testSong(1))
+        library.playFavorites(); await library.playbackTask?.value
+        delegate.attach(library, integration: integration) // A rebuilt window retains the playlist/controller.
+        #expect(adapter.registrations == 1); #expect(adapter.commands.contains(.next))
+        library.cycleRepeatMode()
+        adapter.send(.pause); try await wait { !library.isPlaying }
+        adapter.send(.next); await library.playbackTask?.value
+        #expect(library.currentSong?.id == testSong(1).id); #expect(player.initialPauses.last == true)
+        #expect(adapter.metadata?.title == testSong(1).title)
+        #expect(!adapter.commands.contains(.next))
+        adapter.send(.previous); await library.playbackTask?.value
+        #expect(library.currentSong?.id == testSong(0).id); #expect(player.initialPauses.last == true)
+        library.cycleRepeatMode() // Repeat All exposes Next even on the final favorite.
+        adapter.send(.next); await library.playbackTask?.value
+        #expect(adapter.commands.contains(.next))
+        adapter.send(.stop); #expect(adapter.metadata == nil)
+        integration.stop(); library.shutdown()
+    }
+
     @Test func remotePlayPauseAreIdempotentAndUIFollowsEvents() async throws {
         let player = MediaPlayerFixture(), library = make(player: player), adapter = MediaAdapterFixture(), lifecycle = LifecycleFixture()
         let integration = SystemMediaIntegration(library: library, adapter: adapter, lifecycle: lifecycle); integration.start(); defer { integration.stop() }

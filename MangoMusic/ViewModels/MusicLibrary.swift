@@ -1,6 +1,12 @@
 import SwiftUI
 import Observation
 
+enum RepeatMode: String, CaseIterable {
+    case off, one, all
+    var label: String { "Repeat " + rawValue.capitalized }
+    var symbol: String { self == .one ? "repeat.1" : "repeat" }
+}
+
 enum SearchState: Equatable {
     case idle, loading, loaded, empty, cancelled, failure(String)
 }
@@ -57,7 +63,60 @@ final class MusicLibrary {
     }
     var searchFocusRequest = 0
     private let defaults: UserDefaults
-    private var previousSongs: [Song] = []
+    private struct NavigationEntry {
+        let song: Song
+        let sequenceID: UUID
+        let position: Int
+    }
+    private var previousSongs: [NavigationEntry] = []
+    private var sequenceID = UUID()
+    private(set) var favoritesSequence: [Song] = []
+    private var playlistPosition = -1
+    private(set) var repeatMode: RepeatMode = .off {
+        didSet { defaults.set(repeatMode.rawValue, forKey: "repeatMode") }
+    }
+    var favoritesPlaybackActive: Bool { !favoritesSequence.isEmpty }
+
+    func cycleRepeatMode() {
+        guard !isClosing else { return }
+        switch repeatMode {
+        case .off: repeatMode = .one
+        case .one: repeatMode = .all
+        case .all: repeatMode = .off
+        }
+        onMediaStateChange?()
+    }
+
+    private func rememberCurrent() {
+        if let currentSong {
+            previousSongs.append(NavigationEntry(song: currentSong, sequenceID: sequenceID, position: playlistPosition))
+            if previousSongs.count > 100 { previousSongs.removeFirst() }
+        }
+    }
+
+    private func clearPlaylist() {
+        favoritesSequence = []; playlistPosition = -1; sequenceID = UUID()
+    }
+
+    func playFavorites(shuffled: Bool = false) {
+        guard canEditLibrary, !systemSleeping, !favorites.isEmpty else { return }
+        rememberCurrent()
+        sequenceID = UUID()
+        favoritesSequence = shuffled ? favorites.shuffled() : favorites
+        playlistPosition = 0
+        beginPlayback(favoritesSequence[0])
+    }
+
+    // Snapshot order is stable; additions wait until the next Play All/Shuffle.
+    // Removal excludes future occurrences, but never interrupts the current song.
+    private var nextPlaylistPosition: Int? {
+        let remaining = favoritesSequence.indices.dropFirst(playlistPosition + 1)
+        if let next = remaining.first(where: { favoriteIDs.contains(favoritesSequence[$0].id) }) { return next }
+        if repeatMode == .all {
+            return favoritesSequence.indices.first(where: { favoriteIDs.contains(favoritesSequence[$0].id) })
+        }
+        return nil
+    }
     var sidebarVisible: Bool {
         didSet { defaults.set(sidebarVisible, forKey: "sidebarVisible") }
     }
@@ -70,6 +129,7 @@ final class MusicLibrary {
         self.player = player ?? MPVPlaybackEngine()
         self.searchService = searchService
         self.defaults = defaults
+        repeatMode = defaults.string(forKey: "repeatMode").flatMap(RepeatMode.init(rawValue:)) ?? .off
         sidebarVisible = (defaults.object(forKey: "sidebarVisible") as? NSNumber)
             .flatMap { CFGetTypeID($0) == CFBooleanGetTypeID() ? $0.boolValue : nil } ?? true
         if let stored = defaults.object(forKey: "volume") as? NSNumber,
@@ -82,7 +142,10 @@ final class MusicLibrary {
 
     var favorites: [Song] {
         knownSongs.values.filter { favoriteIDs.contains($0.id) }
-            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            .sorted {
+                let order = $0.title.localizedStandardCompare($1.title)
+                return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
+            }
     }
 
     func search() {
@@ -165,7 +228,8 @@ final class MusicLibrary {
 
     func play(_ song: Song) {
         guard canEditLibrary, !systemSleeping else { return }
-        if let currentSong { previousSongs.append(currentSong) }
+        rememberCurrent()
+        clearPlaylist()
         beginPlayback(song)
     }
 
@@ -244,7 +308,9 @@ final class MusicLibrary {
         case .ended:
             guard historyRecorded else { fail("Playback ended before audio started. Retry or choose another song."); return }
             ended = true; isPlaying = false; isLoading = false; isBuffering = false
-            if !queue.isEmpty { next() }
+            if repeatMode == .one, let currentSong {
+                beginPlayback(currentSong)
+            } else { next() }
         case .failure(let message): fail(message)
         }
     }
@@ -266,7 +332,7 @@ final class MusicLibrary {
     func playQueueEntry(_ id: UUID, paused: Bool = false) {
         guard canEditLibrary, !systemSleeping, let index = queue.firstIndex(where: { $0.id == id }) else { return }
         let entry = queue.remove(at: index)
-        if let currentSong { previousSongs.append(currentSong) }
+        rememberCurrent()
         beginPlayback(entry.song, queueEntry: entry, paused: paused)
     }
 
@@ -345,15 +411,25 @@ final class MusicLibrary {
 
     func next() {
         guard canEditLibrary, !systemSleeping else { return }
-        guard let entry = queue.first else { stop(); return }
-        playQueueEntry(entry.id, paused: loaded && !ended && playbackError == nil && desiredPaused)
+        let keepPaused = loaded && !ended && playbackError == nil && desiredPaused
+        if let entry = queue.first {
+            playQueueEntry(entry.id, paused: keepPaused)
+        } else if let position = nextPlaylistPosition {
+            rememberCurrent()
+            playlistPosition = position
+            beginPlayback(favoritesSequence[position], paused: keepPaused)
+        } else { stop() }
     }
 
     func previous() {
         guard playbackCapabilities.contains(.previous) else { return }
         let keepPaused = loaded && !ended && playbackError == nil && desiredPaused
         if progress > 3 { seek(to: 0) }
-        else if let song = previousSongs.popLast() { beginPlayback(song, paused: keepPaused) }
+        else if let entry = previousSongs.popLast() {
+            if entry.sequenceID == sequenceID { playlistPosition = entry.position }
+            else { clearPlaylist() }
+            beginPlayback(entry.song, paused: keepPaused)
+        }
         else { seek(to: 0) }
     }
 
@@ -504,7 +580,7 @@ final class MusicLibrary {
         if !isLoading, (currentSong != nil || !queue.isEmpty), (ended || playbackError != nil || !loaded || desiredPaused) { commands.insert(.play) }
         if isLoading || (loaded && !ended && playbackError == nil && !desiredPaused) { commands.insert(.pause) }
         if commands.contains(.play) || commands.contains(.pause) { commands.insert(.toggle) }
-        if !queue.isEmpty { commands.insert(.next) }
+        if !queue.isEmpty || nextPlaylistPosition != nil { commands.insert(.next) }
         if !previousSongs.isEmpty || (loaded && !ended && duration > 0 && playbackError == nil) { commands.insert(.previous) }
         if loaded && !ended && playbackError == nil && duration.isFinite && duration > 0 { commands.insert(.seek) }
         if !ended { commands.insert(.stop) }

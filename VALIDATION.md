@@ -1,4 +1,51 @@
-# Mango Music — Checkpoint 6 validation
+# Mango Music — Checkpoint 7, Phase 1 validation
+
+28 October 2026, Asia/Kolkata. Initial `main` was clean at `ab0af495627e1c7f92f78715a8118cebd5807e2f`; a fresh fetch confirmed HEAD and origin/main matched before edits. Phase 1 changes only the coordinator, two views, tests, and documentation. No SQLite migration, dependency, packaging, signing, installed app, or user-data change is part of this work. Checkpoint 6 evidence below is historical; the user now reports the stable app is installed at `/Applications/Mango Music.app`, which this phase leaves untouched.
+
+## Phase 1 automated validation
+
+Final result: **97 tests passed in 12 suites**, all opt-in declarations enabled, including all three public-video cases; no skips or failures. Swift Debug package build, plist/XML checks, and **Xcode Debug BUILD SUCCEEDED**. The complete source/test/documentation diff and whitespace checks were reviewed before commit. Tests used existing development helpers; bundled-runtime discovery and packaging sources remain unchanged.
+
+- `Scripts/check.sh`: Swift Debug package build, full Swift Testing suite, project plist and shared-scheme XML validation.
+- Full opt-in run uses `MANGO_MPV_INTEGRATION=1 MANGO_NATIVE_MEDIA_INTEGRATION=1 MANGO_YOUTUBE_INTEGRATION=1 MANGO_YOUTUBE_DIAGNOSTICS=1 Scripts/check.sh`. Test stores/settings are isolated; playback uses null output. No real library or preferences are opened for testing.
+- `PlaylistTests` covers Off/One/All, natural EOF, duplicate/stale events, manual Next under One, Play All, Shuffle snapshot membership/order, empty/single/removed favorites, queue priority/resumption, repeat preference restoration, resolution/player failure without automatic retries, and cancellation races.
+- `SystemMediaTests` additionally checks playlist-aware Next/Previous, preservation of pause, metadata and command availability, and repeated app/window attachment without duplicate registration. Existing background delivery, lifecycle, interruptions, persistence, and queue recovery regressions remain in the full suite.
+- `MPVIntegrationTests.localAudioIPC` now drives real EOF through One, a remote manual Next into the queue, queue-to-playlist resumption, All wraparound, and Off exhaustion. It verifies that consumed manual entries do not loop and the same mpv PID serves the transitions. Generated silent WAV and temporary SQLite remain isolated.
+- Live checks cover real YouTube search/manual queue and three canonical public videos. They establish stream/IPC regression behavior, not audible sound or a human Control Center observation. Phase 1 Favorites/repeat with real YouTube remains in the manual checklist below.
+- Debug Xcode command: `xcodebuild -project MangoMusic.xcodeproj -scheme MangoMusic -configuration Debug -destination 'platform=macOS,arch=arm64' -derivedDataPath .build/Phase1DerivedData CODE_SIGNING_ALLOWED=NO build`.
+
+Compiler macro plugins cannot run inside the initial restrictive execution sandbox. Checks use approved execution outside that sandbox with project-local staging; no project security or signing settings were changed. A new media test initially compared whole Song values against a fixture with a different duration; assertions now compare stable IDs, allowing the existing observed-duration update.
+
+## Launch Phase 1 in Xcode with isolated data
+
+1. Quit the installed Mango Music normally. Leave `/Applications/Mango Music.app` in place.
+2. In Terminal, run:
+
+   ```sh
+   cd /Users/sahilbhardwaj/Developer/MangoMusic
+   mkdir -p .build/phase1-manual-home
+   chmod 700 .build/phase1-manual-home
+   open MangoMusic.xcodeproj
+   ```
+
+3. Select **MangoMusic → My Mac**. In **Product → Scheme → Edit Scheme → Run → Info**, select **Debug** and the built **MangoMusic.app** executable. Do not select the installed application.
+4. In **Run → Arguments → Environment Variables**, enable both `HOME` and `CFFIXED_USER_HOME`, each with the absolute value `/Users/sahilbhardwaj/Developer/MangoMusic/.build/phase1-manual-home`. This uses the same isolated-home approach as the existing launch probe, preserving the real SQLite/preferences. These local scheme settings should stay uncommitted. Leave signing/build settings unchanged.
+5. Press **Cmd+R**. Start with the isolated empty Favorites; search and heart a few songs to create test data. The built executable should be under Xcode's Debug products, not `/Applications`. Tests run through SwiftPM; the Xcode scheme has no Test action.
+
+## Phase 1 manual checklist and limits
+
+- Empty Favorites: Play All/Shuffle disabled. Add one favorite, then several; verify Play All order and Shuffle's fixed session order, current-row highlight, keyboard focus, help/VoiceOver repeat labels, and narrow-window layout.
+- Off: natural completion advances through Favorites and stops at the end. One: natural completion restarts the song; manual Next/Previous still navigate. All: final favorite returns to the first; a one-song snapshot repeats.
+- While favorite A plays, add X and Play Next Y. Natural completion should play Y, X, then favorite B; All must never recreate X/Y. Queue reorder/remove/clear and explicit queued selections should still work. Removing a future favorite skips it; adding a favorite waits for the next Play All/Shuffle.
+- Unavailable favorite: error remains visible without retry loops. Retry resolves again; Next bypasses it. Repeat modes never auto-retry a failure. Unstarted failed manual selections retain the earlier queue recovery policy.
+- Use Control Center Play/Pause/Next/Previous during Favorites playback, including One and paused navigation. Close the window; let the playlist advance, use media commands, then reopen from Dock. Physical media keys/headphones and visual Control Center delivery still require human checks.
+- Quit normally, relaunch from Xcode with the same isolated home, and verify repeat preference and test Favorites/History/Queue restore without autoplay. The playlist snapshot itself intentionally does not survive relaunch. Verify sound and owned-helper cleanup on Cmd+Q.
+
+No human Phase 1 GUI, audible, VoiceOver, device, sleep/wake, or background-window checks have been claimed. There is no Phase 1 packaging, installer, installation, release, recommendation autoplay, or download implementation. The installed stable app and existing user data remain unchanged.
+
+---
+
+# Historical Checkpoint 6 validation
 
 25 October 2026, Asia/Kolkata. Checkpoint 6 packages a local Release app; previous Debug manual confirmations are archived verbatim in [VALIDATION_CHECKPOINT5.md](VALIDATION_CHECKPOINT5.md). The subsequent user-reported standalone results below establish the listed manual checks for the isolated Release package on this Mac; they are separate from those earlier Debug results. Earlier persistence and HLS evidence remains in VALIDATION_CHECKPOINT4.md and YOUTUBE_PLAYBACK_DIAGNOSIS.md.
 
