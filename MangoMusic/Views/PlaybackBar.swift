@@ -48,6 +48,21 @@ struct PlaybackBar: View {
                 }
                 .frame(width: 136).padding(.leading, 16)
             }
+            HStack(spacing: 12) {
+                Toggle("Autoplay", isOn: Binding(get: { library.autoplayEnabled }, set: library.setAutoplayEnabled))
+                    .toggleStyle(.switch).fixedSize()
+                    .accessibilityLabel("Smart Autoplay")
+                    .help("Continue with YouTube Mix songs after your queue and Favorites finish. Search is used if Mix is unavailable. Stop always stops playback.")
+                if let source = library.currentRecommendationSource {
+                    Text(source.label).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                if library.isFindingRelatedSongs {
+                    Text("Finding related songs…").font(.caption).foregroundStyle(.secondary)
+                } else if let notice = library.autoplayNotice {
+                    Text(notice).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
             if let notice = library.playbackNotice {
                 Text(notice).font(.caption).foregroundStyle(.secondary)
             }

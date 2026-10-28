@@ -67,6 +67,122 @@ final class MusicLibrary {
     @ObservationIgnored private(set) var playbackTask: Task<Void, Never>?
     @ObservationIgnored private var controlTask: Task<Void, Never>?
     private var playbackID = UUID()
+    @ObservationIgnored private let relatedProvider: any RelatedSongProviding
+    @ObservationIgnored private(set) var relatedTask: Task<Void, Never>?
+    private var relatedID = UUID()
+    private var relatedBuffer: [Song] = []
+    private var relatedSource: RecommendationSource = .mix
+    private var requestedSeeds: [String] = []
+    private var recentSelections: [String] = []
+    private var autoplayArmed = false
+    private var automaticFailures = 0
+    private var waitingForAutoplay = false
+    private var autoplayWaitPaused = false
+    private(set) var isFindingRelatedSongs = false
+    private(set) var autoplayNotice: String?
+    private(set) var currentRecommendationSource: RecommendationSource?
+    private(set) var autoplayEnabled = false
+
+    func setAutoplayEnabled(_ enabled: Bool) {
+        guard !isClosing else { return }
+        autoplayEnabled = enabled
+        defaults.set(enabled, forKey: "autoplayEnabled")
+        if !enabled {
+            let waiting = waitingForAutoplay
+            resetAutoplaySession()
+            if waiting { stop() }
+        } else if !ended, playbackError == nil {
+            autoplayArmed = true
+            if historyRecorded { prefetchRelatedSongs() }
+        }
+        onMediaStateChange?()
+    }
+
+    private func resetAutoplaySession() {
+        relatedID = UUID(); relatedTask?.cancel(); relatedTask = nil
+        relatedBuffer = []; requestedSeeds = []; waitingForAutoplay = false
+        isFindingRelatedSongs = false; autoplayArmed = false; autoplayNotice = nil
+        automaticFailures = 0
+    }
+
+    private var recommendationExclusions: Set<String> {
+        Set(recentSelections + history.prefix(50).map { $0.song.id } + queue.map { $0.song.id }
+            + [currentSong?.id].compactMap { $0 })
+    }
+
+    private func prefetchRelatedSongs() {
+        guard autoplayEnabled, autoplayArmed, canEditLibrary, !systemSleeping,
+              relatedTask == nil, relatedBuffer.isEmpty, let seed = currentSong,
+              !requestedSeeds.contains(seed.id) else { return }
+        requestedSeeds.append(seed.id)
+        if requestedSeeds.count > 50 { requestedSeeds.removeFirst() }
+        let request = UUID(); relatedID = request
+        let provider = relatedProvider, exclusions = recommendationExclusions
+        isFindingRelatedSongs = true; autoplayNotice = nil
+        relatedTask = Task { [weak self] in
+            do {
+                try Task.checkCancellation()
+                let batch = try await provider.recommendations(for: seed, excluding: exclusions)
+                guard let self, self.relatedID == request, !Task.isCancelled,
+                      self.autoplayEnabled, self.autoplayArmed, self.canEditLibrary, !self.systemSleeping else { return }
+                var seen = self.recommendationExclusions
+                self.relatedBuffer = Array(batch.songs.filter {
+                    (try? YouTubeVideoID.validate($0.id)) != nil && seen.insert($0.id).inserted
+                }.prefix(YouTubeMixProvider.batchLimit))
+                self.relatedSource = batch.source
+                self.autoplayNotice = self.relatedBuffer.isEmpty ? "No new related songs available." : nil
+                self.finishRelatedRequest()
+            } catch {
+                guard let self, self.relatedID == request, !Task.isCancelled else { return }
+                self.autoplayNotice = error as? RecommendationError == .throttled || error as? RecommendationError == .coolingDown
+                    ? "Autoplay is cooling down. Try again later."
+                    : "Related songs are unavailable. Choose a song to continue."
+                self.finishRelatedRequest()
+            }
+        }
+    }
+
+    private func finishRelatedRequest() {
+        relatedTask = nil; isFindingRelatedSongs = false
+        if waitingForAutoplay {
+            waitingForAutoplay = false
+            advance(paused: autoplayWaitPaused) // Recheck queue, playlist and mode after the asynchronous request.
+        }
+        onMediaStateChange?()
+    }
+
+    private func advanceAutoplay(paused: Bool) {
+        guard autoplayEnabled, autoplayArmed, currentSong != nil, automaticFailures < 3 else { stop(); return }
+        let exclusions = recommendationExclusions
+        relatedBuffer.removeAll { exclusions.contains($0.id) }
+        if !relatedBuffer.isEmpty {
+            let song = relatedBuffer.removeFirst()
+            rememberCurrent()
+            beginPlayback(song, paused: paused, recommendation: relatedSource)
+            return
+        }
+        prefetchRelatedSongs()
+        if relatedTask != nil {
+            waitingForAutoplay = true; autoplayWaitPaused = paused
+            playbackID = UUID() // Discard the completed track's EOF and queued remote commands.
+            loaded = false; ended = true; isPlaying = false; isLoading = false; isBuffering = false
+            // Manual Next may reach this state while the old song is still audible/resolving.
+            // Stop it through the same serialized task chain before any later candidate load.
+            let previous = playbackTask, previousControl = controlTask, player = player
+            previous?.cancel(); previousControl?.cancel()
+            playbackTask = Task {
+                await previous?.value
+                await previousControl?.value
+                guard !Task.isCancelled else { return }
+                await player.stop()
+            }
+            onMediaStateChange?()
+        } else {
+            let notice = autoplayNotice ?? "No new related songs available."
+            stop(); autoplayNotice = notice
+        }
+    }
+
     private var desiredPaused = false
     private var systemSleeping = false
     private var mediaPositionRevision = 0
@@ -132,6 +248,7 @@ final class MusicLibrary {
     func playFavorites(shuffled: Bool = false) {
         guard canEditLibrary, !systemSleeping, !favorites.isEmpty else { return }
         rememberCurrent()
+        resetAutoplaySession()
         sequenceID = UUID()
         favoritesSequence = shuffled ? favorites.shuffled() : favorites
         playlistPosition = 0
@@ -154,12 +271,15 @@ final class MusicLibrary {
 
     init(defaults: UserDefaults = .standard, searchService: any SongSearching = YouTubeSearchService(),
          resolver: any AudioStreamResolving = AudioStreamResolver(), player: (any AudioPlaying)? = nil,
-         store: (any LibraryPersisting)? = nil) {
+         store: (any LibraryPersisting)? = nil, relatedProvider: any RelatedSongProviding = YouTubeMixProvider()) {
+        self.relatedProvider = relatedProvider
         self.store = store
         self.resolver = resolver
         self.player = player ?? MPVPlaybackEngine()
         self.searchService = searchService
         self.defaults = defaults
+        autoplayEnabled = (defaults.object(forKey: "autoplayEnabled") as? NSNumber)
+            .flatMap { CFGetTypeID($0) == CFBooleanGetTypeID() ? $0.boolValue : nil } ?? false
         repeatMode = defaults.string(forKey: "repeatMode").flatMap(RepeatMode.init(rawValue:)) ?? .off
         historyRetention = defaults.string(forKey: "historyRetention").flatMap(HistoryRetention.init(rawValue:)) ?? .never
         historyLimit = defaults.string(forKey: "historyLimit").flatMap(HistoryLimit.init(rawValue:)) ?? .unlimited
@@ -257,11 +377,13 @@ final class MusicLibrary {
         defer { onMediaStateChange?() }
         guard canEditLibrary else { return }
         queue.append(QueueEntry(song: song)); scheduleSave()
+        if waitingForAutoplay { next() }
     }
 
     func play(_ song: Song) {
         guard canEditLibrary, !systemSleeping else { return }
         rememberCurrent()
+        resetAutoplaySession()
         clearPlaylist()
         beginPlayback(song)
     }
@@ -270,10 +392,19 @@ final class MusicLibrary {
         defer { onMediaStateChange?() }
         guard canEditLibrary else { return }
         queue.insert(QueueEntry(song: song), at: 0); scheduleSave()
+        if waitingForAutoplay { next() }
     }
 
-    private func beginPlayback(_ song: Song, queueEntry: QueueEntry? = nil, retry: Bool = false, paused: Bool = false) {
+    private func beginPlayback(_ song: Song, queueEntry: QueueEntry? = nil, retry: Bool = false, paused: Bool = false, recommendation: RecommendationSource? = nil) {
         defer { onMediaStateChange?() }
+        waitingForAutoplay = false; autoplayArmed = true
+        currentRecommendationSource = recommendation
+        if recommendation == nil { automaticFailures = 0 }
+        if !retry {
+            recentSelections.removeAll { $0 == song.id }
+            recentSelections.append(song.id)
+            if recentSelections.count > 50 { recentSelections.removeFirst() }
+        }
         desiredPaused = paused; playbackNotice = nil
         returnPendingEntry()
         if let queueEntry { queue.removeAll { $0.id == queueEntry.id } }
@@ -341,8 +472,9 @@ final class MusicLibrary {
         case .ended:
             guard historyRecorded else { fail("Playback ended before audio started. Retry or choose another song."); return }
             ended = true; isPlaying = false; isLoading = false; isBuffering = false
+            automaticFailures = 0
             if repeatMode == .one, let currentSong {
-                beginPlayback(currentSong)
+                beginPlayback(currentSong, recommendation: currentRecommendationSource)
             } else { next() }
         case .failure(let message): fail(message)
         }
@@ -355,11 +487,19 @@ final class MusicLibrary {
         isPlaying = false; isLoading = false; isBuffering = false
         let player = player
         controlTask = Task { await player.stop() }
+        if currentRecommendationSource != nil, autoplayEnabled, autoplayArmed {
+            automaticFailures += 1
+            if automaticFailures < 3 { advance(paused: false) }
+            else {
+                resetAutoplaySession()
+                autoplayNotice = "Autoplay stopped after three playback failures. Choose a song or Retry."
+            }
+        }
     }
 
     func retryPlayback() {
         guard canEditLibrary, !systemSleeping, let currentSong else { return }
-        beginPlayback(currentSong, queueEntry: pendingQueueEntry, retry: !ended)
+        beginPlayback(currentSong, queueEntry: pendingQueueEntry, retry: !ended, recommendation: currentRecommendationSource)
     }
 
     func playQueueEntry(_ id: UUID, paused: Bool = false) {
@@ -381,6 +521,7 @@ final class MusicLibrary {
 
     func pausePlayback() {
         guard canEditLibrary, !systemSleeping else { return }
+        if waitingForAutoplay { stop(); return }
         if isLoading { stop(); return } // A pause during resolution must prevent a late autoplay.
         guard loaded, !ended, playbackError == nil, !desiredPaused else { return }
         desiredPaused = true
@@ -390,7 +531,7 @@ final class MusicLibrary {
 
     func togglePlayback() {
         guard canEditLibrary, !systemSleeping else { return }
-        if isLoading { pausePlayback() }
+        if isLoading || waitingForAutoplay { pausePlayback() }
         else if ended || playbackError != nil || currentSong == nil || desiredPaused { playPlayback() }
         else { pausePlayback() }
     }
@@ -420,6 +561,7 @@ final class MusicLibrary {
     }
 
     func stop() {
+        resetAutoplaySession()
         defer { onMediaStateChange?() }
         desiredPaused = true; loaded = false
         let needsRecovery = pendingQueueEntry.map { entry in !queue.contains(where: { $0.id == entry.id }) } ?? false
@@ -432,6 +574,7 @@ final class MusicLibrary {
     }
 
     func shutdown() {
+        resetAutoplaySession()
         historyCleanupTask?.cancel()
         defer { onMediaStateChange?() }
         desiredPaused = true; loaded = false; ended = true
@@ -445,21 +588,28 @@ final class MusicLibrary {
 
     func next() {
         guard canEditLibrary, !systemSleeping else { return }
-        let keepPaused = loaded && !ended && playbackError == nil && desiredPaused
+        let keepPaused = waitingForAutoplay ? autoplayWaitPaused : loaded && !ended && playbackError == nil && desiredPaused
+        waitingForAutoplay = false
+        advance(paused: keepPaused)
+    }
+
+    private func advance(paused keepPaused: Bool) {
+        guard canEditLibrary, !systemSleeping else { return }
         if let entry = queue.first {
             playQueueEntry(entry.id, paused: keepPaused)
         } else if let position = nextPlaylistPosition {
             rememberCurrent()
             playlistPosition = position
             beginPlayback(favoritesSequence[position], paused: keepPaused)
-        } else { stop() }
+        } else { advanceAutoplay(paused: keepPaused) }
     }
 
     func previous() {
         guard playbackCapabilities.contains(.previous) else { return }
         let keepPaused = loaded && !ended && playbackError == nil && desiredPaused
-        if progress > 3 { seek(to: 0) }
+        if progress > 3, !waitingForAutoplay { seek(to: 0) }
         else if let entry = previousSongs.popLast() {
+            resetAutoplaySession()
             if entry.sequenceID == sequenceID { playlistPosition = entry.position }
             else { clearPlaylist() }
             beginPlayback(entry.song, paused: keepPaused)
@@ -579,6 +729,7 @@ final class MusicLibrary {
                                    playCount: min(old?.playCount ?? 0, Int.max - 1) + 1), at: 0)
         cleanupHistory()
         scheduleSave()
+        prefetchRelatedSongs()
     }
 
     private func snapshot() -> LibrarySnapshot {
@@ -675,15 +826,20 @@ final class MusicLibrary {
         return true
     }
 
-    var playPauseShowsPause: Bool { isLoading || (loaded && !ended && playbackError == nil && !desiredPaused) }
+    var playPauseShowsPause: Bool { waitingForAutoplay || isLoading || (loaded && !ended && playbackError == nil && !desiredPaused) }
 
     var playbackCapabilities: Set<MediaCommandKind> {
         guard canEditLibrary, !systemSleeping else { return [] }
+        if waitingForAutoplay {
+            var commands: Set<MediaCommandKind> = [.pause, .toggle, .stop, .next]
+            if !previousSongs.isEmpty { commands.insert(.previous) }
+            return commands
+        }
         var commands: Set<MediaCommandKind> = []
         if !isLoading, (currentSong != nil || !queue.isEmpty), (ended || playbackError != nil || !loaded || desiredPaused) { commands.insert(.play) }
         if isLoading || (loaded && !ended && playbackError == nil && !desiredPaused) { commands.insert(.pause) }
         if commands.contains(.play) || commands.contains(.pause) { commands.insert(.toggle) }
-        if !queue.isEmpty || nextPlaylistPosition != nil { commands.insert(.next) }
+        if !queue.isEmpty || nextPlaylistPosition != nil || (autoplayEnabled && autoplayArmed && currentSong != nil) { commands.insert(.next) }
         if !previousSongs.isEmpty || (loaded && !ended && duration > 0 && playbackError == nil) { commands.insert(.previous) }
         if loaded && !ended && playbackError == nil && duration.isFinite && duration > 0 { commands.insert(.seek) }
         if !ended { commands.insert(.stop) }
@@ -692,7 +848,9 @@ final class MusicLibrary {
 
     var mediaPlaybackSnapshot: MediaPlaybackSnapshot {
         let phase: MediaPlaybackPhase
-        if ended || systemSleeping || isClosing { phase = .stopped }
+        if systemSleeping || isClosing { phase = .stopped }
+        else if waitingForAutoplay { phase = .loading }
+        else if ended { phase = .stopped }
         else if playbackError != nil { phase = .failed }
         else if isLoading { phase = .loading }
         else if isBuffering && isPlaying { phase = .buffering }
@@ -718,7 +876,7 @@ final class MusicLibrary {
     func handleInterruption(_ reason: PlaybackInterruption) {
         defer { onMediaStateChange?() }
         if case .wake = reason { systemSleeping = false; return } // Never resume on wake.
-        let active = !ended && (isLoading || loaded)
+        let active = waitingForAutoplay || (!ended && (isLoading || loaded))
         if case .sleep = reason {
             systemSleeping = true
             // Invalidate even a stopped generation: a command queued before sleep must

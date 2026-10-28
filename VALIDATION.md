@@ -1,3 +1,57 @@
+# Mango Music — Checkpoint 7, Phase 2B validation
+
+28 October 2026, Asia/Kolkata. Started at `db4ce09d4dbf8ab66ff7a83f54af9fc7a95026b4` on main; a fresh fetch confirmed zero commits ahead/behind. The complete ignored Phase 2A report was read before editing. The pre-existing shared scheme modification (blob `9ca951e610568feed117ad46ec37d2097105d1e0`) is preserved and excluded from this implementation commit. It remains the sole expected uncommitted change after finalization.
+
+## Phase 2B automated results
+
+- **133 tests passed in 16 suites**, with all opt-in integration declarations enabled, no skips/failures. Existing 106 tests plus 27 Phase 2B test declarations; parameterized tests additionally exercise multiple variants.
+- Swift package Debug build, Xcode project plist validation, and shared scheme XML validation passed via `Scripts/check.sh`.
+- Xcode Debug: **BUILD SUCCEEDED**, using `.build/Phase2BDerivedData`; command-line signing disabled without modifying the checked-in signing/security settings. No app was launched or installed by this build.
+- Provider fixtures cover validated URL construction/arguments, capped/deduplicated metadata parsing, missing artist/duration, unavailable/private/live entries, malformed/null/wrong-Mix responses, one search fallback with distinct provenance, cache re-filtering, transport/parse errors without fallback, and throttling/auth cooldown suppressing new subprocess calls.
+- Coordinator fixtures cover default Off/strict preference persistence, no startup helper/network, EOF versus manual Next, duplicate/stale events, queue/Favorites/Repeat priority, continuation after detours, paused and delayed Next, toggling Off/On, empty/failing providers, three automatic stream failures, manual errors retaining Retry, and late data after Stop, interruption, shutdown, quit, direct selection, Previous, or cancelled loading.
+- A specific reviewed race is covered: manual Next while recommendation prefetch is pending now stops old audio/cancels prior resolution through the serialized playback task chain. Late old player events cannot restore the old UI or trigger extra transitions.
+- Temporary SQLite round trips verify Favorites, queue UUID/order, selected-song metadata and History survive automatic playback/quit; persisted Autoplay On restores without any player or recommendation call. Schema v2 and LibrarySnapshot remain unchanged. No real user SQLite or preferences are used.
+- Existing local mpv IPC, native media API/lifecycle, History management/migrations/conflict/rollback, search and playback regression suites passed.
+
+The final full command was:
+
+```sh
+MANGO_MPV_INTEGRATION=1 MANGO_NATIVE_MEDIA_INTEGRATION=1 \
+MANGO_YOUTUBE_INTEGRATION=1 MANGO_YOUTUBE_DIAGNOSTICS=1 \
+MANGO_MIX_INTEGRATION=1 Scripts/check.sh
+xcodebuild -project MangoMusic.xcodeproj -scheme MangoMusic \
+  -configuration Debug -destination 'platform=macOS,arch=arm64' \
+  -derivedDataPath .build/Phase2BDerivedData CODE_SIGNING_ALLOWED=NO build
+```
+
+Compiler/plugin execution used the established approved execution mode outside the restrictive tool sandbox. All project build outputs remain under ignored `.build`. An initial test build required a private test helper access-level correction. Final implementation/test/documentation diffs and whitespace were reviewed before commit.
+
+## Bounded live Phase 2B evidence
+
+`MixAutoplayIntegrationTests.liveMixSelectionAndPersistentMPV` uses the production YouTubeMixProvider/MusicLibrary/AudioStreamResolver/MPVPlaybackEngine path, isolated UserDefaults and no production database. It explicitly opts in, loads public seed `dQw4w9WgXcQ`, waits for actual audio position and one capped 20-entry Mix request, then seeks near the end so real mpv EOF automatically selects a non-seed Mix candidate. The candidate must show a positive playback clock, `.mix` provenance, an empty manual queue, and the same owned mpv PID. Stop/connection teardown follow. The final live check passed using existing development tools and null audio output. This establishes one real natural transition, not universal recommendation relevance, a live fallback failure, audible output, or a human UI observation. Fallback/throttling behavior is deterministic fixture coverage; no deliberate rate-limit stress was performed.
+
+The separate existing live checks also passed: YouTube search/manual queue and three canonical public-video playback cases. No signed stream URLs/raw diagnostics/audio files were committed. Phase 2A's staged bundled-helper/restricted-PATH research is distinct from this Debug integration; no new standalone package was built or installed.
+
+## Manual Xcode verification — pending for Phase 2B
+
+1. Quit the installed Mango Music normally. Open `/Users/sahilbhardwaj/Developer/MangoMusic/MangoMusic.xcodeproj`; select **MangoMusic → My Mac**, **Run → Debug**. Retain the existing isolated `HOME` and `CFFIXED_USER_HOME` values `/Users/sahilbhardwaj/Developer/MangoMusic/.build/phase1-manual-home` under Edit Scheme → Run → Arguments. Keep these local scheme edits uncommitted. Press **Cmd+R** to run the Debug product, not the installed bundle.
+2. Find the **Autoplay** switch beneath the transport/volume row. Verify initial Off, keyboard/VoiceOver labels/help, and persistence after quit/relaunch. Relaunch must remain stopped even with Autoplay On; enabling the switch while stopped must not start playback.
+3. Explicitly play a public music track, enable Autoplay, and let it finish (or seek near the end after audio starts). Verify a non-seed song follows with a **YouTube Mix** label. Related search fallback is labeled **Related search** if naturally encountered; do not fabricate failures using real user data or credentials. Test fixtures cover fallback independently.
+4. During Favorites Play All, insert manual queue songs: they play first, then the next favorite, then radio after the finite playlist ends under Repeat Off. Repeat One repeats naturally but manual Next bypasses it. Repeat All wraps Favorites before radio and never recreates consumed queue entries.
+5. Pause and use Next; the next selection must stay paused, including delayed recommendations. Press Next during Finding related songs: old audio must stop while waiting. Add a queued song while waiting: it should start with priority. Exercise rapid Next/Previous and switch changes without duplicate transitions.
+6. Turn Autoplay Off during an automatic song: current playback continues and no further automatic song starts. Stop or cancel loading/waiting: no late automatic playback. Stop followed by toggling On must stay stopped until explicit Play. Quit while loading/finding and relaunch: no autoplay or restored recommendation buffer.
+7. Confirm Control Center commands, window-close/background continuation, Dock reopening, volume/seek, Favorites/History/Queue persistence, History delete/clear/policies, and responsive layout. Sleep/output changes must stop and require explicit Play; wake alone never resumes. Hardware and VoiceOver checks remain manual.
+
+## Known limits and safety
+
+Mix/Radio is anonymous and service-dependent, with changing membership and incomplete artist metadata. Flat entries may become unavailable between discovery and resolution; IDs are deduplicated, but alternate uploads of the same recording can have different IDs. Channel/uploader is a display fallback, not verified performer attribution. Missing JavaScript runtime requirements for some YouTube formats remain an existing runtime limitation; no cookies, account access or dependencies were added.
+
+Each provider process is capped at 30 seconds; one fallback can make the pair approach 60 seconds. Gaps while fetching/resolving are possible. Cache/buffer live only in the session; provider throttling suppresses requests for 120 seconds, other errors for 30 seconds, with no scheduled retry. After three consecutive automatic playback failures the user must choose a song or Retry; explicit manual/Favorites playback never silently skips errors. Previous starts a fresh recommendation context when returning to an earlier selection, while its Favorites cursor follows existing behavior.
+
+`/Applications/Mango Music.app`, real user data, global tools, signing and security configuration are untouched. No packaging, installation, release, audio downloads or Phase 3 work occurred. Phase 2B human UI/audible/background/hardware checks are not claimed by automated tests. The user-performed Phase 1.5 results below remain separate evidence.
+
+---
+
 # Mango Music — Phase 1.5 History Management validation
 
 Phase 1 GitHub finalization completed first: a fresh fetch and live remote check confirmed local/main and origin/main at `78651ce18aaa0f4fa0f35dc36c8f20443d90e49f`, with zero commits ahead/behind and the Phase 1 commit present on origin/main. No redundant Phase 1 commit was created. The user reports Phase 1 manual playback testing passed, including repeat modes, Favorites Play All/Shuffle, queue priority, and playlist continuation.
