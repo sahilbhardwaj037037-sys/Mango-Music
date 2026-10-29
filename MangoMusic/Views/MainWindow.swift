@@ -7,18 +7,22 @@ struct MainWindow: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if library.isRestoring || library.hasUnsavedChanges || library.persistenceError != nil {
+            // This region always occupies the same height, including while idle.
+            // Ordinary asynchronous saves must not move the library at every EOF.
+            SaveStatusView(librarySaving: library.hasUnsavedChanges && library.persistenceError == nil && !library.isRestoring,
+                           downloadsSaving: library.downloads.map { $0.hasUnsavedChanges && $0.persistenceError == nil } == true)
+            if library.isRestoring || library.persistenceError != nil {
                 HStack {
-                    Text(library.persistenceError ?? (library.isRestoring ? "Restoring library…" : "Saving library…"))
+                    Text(library.persistenceError ?? "Restoring library…")
                         .font(.caption).foregroundStyle(.secondary)
                     if library.persistenceError != nil { Button("Retry", action: library.retryPersistence) }
                     Spacer()
                 }.padding(10)
             }
-            if let downloads = library.downloads, downloads.hasUnsavedChanges || downloads.persistenceError != nil {
+            if let downloads = library.downloads, let error = downloads.persistenceError {
                 HStack {
-                    Text(downloads.persistenceError ?? "Saving Downloads…").font(.caption).foregroundStyle(.secondary)
-                    if downloads.persistenceError != nil { Button("Retry", action: downloads.retryPersistence) }
+                    Text(error).font(.caption).foregroundStyle(.secondary)
+                    Button("Retry", action: downloads.retryPersistence)
                     Spacer()
                 }.padding(10)
             }
@@ -74,5 +78,35 @@ struct MainWindow: View {
         }
         .padding(.top, 24)
         .background(.bar)
+    }
+}
+
+/// Ordinary saves have a reserved line; errors/restoration retain their full banners.
+/// There are no controls here to capture mouse or keyboard input during a transition.
+struct SaveStatusView: View {
+    let librarySaving: Bool
+    let downloadsSaving: Bool
+
+    var message: String? {
+        switch (librarySaving, downloadsSaving) {
+        case (true, true): "Saving library and Downloads…"
+        case (true, false): "Saving library…"
+        case (false, true): "Saving Downloads…"
+        case (false, false): nil
+        }
+    }
+
+    var body: some View {
+        HStack {
+            Text(message ?? " ")
+                .lineLimit(1)
+                .opacity(message == nil ? 0 : 1)
+                .accessibilityHidden(message == nil)
+            Spacer(minLength: 0)
+        }
+        .font(.caption).foregroundStyle(.secondary)
+        .padding(.horizontal, 10)
+        .frame(height: 22)
+        .allowsHitTesting(false)
     }
 }
