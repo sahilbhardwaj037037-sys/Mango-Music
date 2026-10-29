@@ -3,6 +3,7 @@ import SwiftUI
 struct DownloadAction: View {
     let song: Song
     @Bindable var downloads: DownloadManager
+    @Environment(\.colorScheme) private var colorScheme
     var body: some View {
         Group {
             if let record = downloads.record(for: song) {
@@ -15,7 +16,7 @@ struct DownloadAction: View {
                             .help("Cancel Download").accessibilityLabel("Cancel download of \(song.title)")
                     }
                 } else if record.status == .complete {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(ThemePalette.success(for: colorScheme))
                         .help("Downloaded").accessibilityLabel("\(song.title) is downloaded")
                 } else {
                     Button { Task { await downloads.retry(song.id) } } label: { Image(systemName: "arrow.clockwise.circle") }

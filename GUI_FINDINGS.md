@@ -4,7 +4,15 @@
 
 **FIX IMPLEMENTED / AWAITING MANUAL VERIFICATION.** Ordinary library and Downloads save status now uses one permanently reserved 22-point line in `MainWindow`, including while idle. Toggling either/both writers no longer inserts/removes layout space. Restoring/error banners and their native Retry buttons remain visible; failed saves do not misleadingly display ordinary saving status. Idle status is hidden from accessibility, and the status line has no controls or hit testing. Persistence operations, MusicLibrary, mpv EOF handling and Repeat/Queue/Shuffle/Autoplay semantics are unchanged.
 
-Focused offscreen native-hosting geometry/message tests and existing repeat, History and download-manager regressions passed: **34 tests in 4 suites**. These tests establish stable save-status layout, not the runtime cause of the original flicker or a successful visual fix. Repeat One/All still require manual retesting in the new packaged build; no GUI was launched. Appearance implementation is tracked separately below as it proceeds.
+Focused offscreen native-hosting geometry/message tests and existing repeat, History and download-manager regressions passed: **34 tests in 4 suites**. These tests establish stable save-status layout, not the runtime cause of the original flicker or a successful visual fix. Repeat One/All still require manual retesting in the new packaged build; no GUI was launched.
+
+## Current appearance implementation status
+
+**IMPLEMENTED / AWAITING MANUAL VERIFICATION.** The native menu bar now contains **Appearance → System / Light / Dark** with the selected mode indicated by the native Picker. `AppearanceMode` defaults to System; `@AppStorage("appearanceMode")` persists the enum and falls back to System for unknown values. The window content applies native `.preferredColorScheme`: nil for System, `.light` or `.dark` for explicit modes. No manual system-notification observer, global AppKit appearance mutation, playback restart or library reconstruction was introduced. System changes and explicit→System return require GUI confirmation.
+
+All seven audited brand/status hue occurrences now use `ThemePalette` roles. Dark retains the original `.pink`, `.green` and 0.12 repeat fill; Light uses darker pink/green variants. Native primary/secondary text, sidebar/List/search surfaces, playback-bar materials, dialogs and controls retain semantic styling. Automated contrast checks passed against native Aqua/Dark Aqua window, control and text backgrounds: at least **4.5:1 for highlighted text** and **3:1 for completion icons**. This is bounded color evidence, not a claim about every translucent, selected, disabled or high-contrast GUI state. Native selection, dialogs, materials and actual display appearance remain manual checks.
+
+Four appearance tests cover System/Light/Dark mapping, isolated AppStorage persistence and invalid-value fallback, native-surface contrast, and preservation of the original dark accents. Together with the two save-status tests, **6 tests in 2 suites passed**. No GUI was launched and no appearance preference was written to the production domain. The historical feasibility discussion below describes the earlier Build 200 baseline, not the current implementation.
 
 ## Historical Build 200 investigation
 

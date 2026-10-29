@@ -6,17 +6,18 @@ struct SongRow: View {
     var remove: (() -> Void)?
     var deleteFromHistory: (() -> Void)?
     @State private var hovered = false
+    @Environment(\.colorScheme) private var colorScheme
     private var isCurrent: Bool { library.currentSong?.id == song.id }
 
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: isCurrent ? "speaker.wave.2.fill" : "music.note")
-                .font(.caption).foregroundStyle(isCurrent ? Color.pink : Color.secondary)
+                .font(.caption).foregroundStyle(isCurrent ? ThemePalette.accent(for: colorScheme) : Color.secondary)
                 .frame(width: 16)
                 .accessibilityLabel(isCurrent ? "Current song" : "Song")
             VStack(alignment: .leading, spacing: 4) {
                 Text(song.title).font(.body.weight(.medium))
-                    .foregroundStyle(isCurrent ? Color.pink : Color.primary).lineLimit(1)
+                    .foregroundStyle(isCurrent ? ThemePalette.accent(for: colorScheme) : Color.primary).lineLimit(1)
                 Text(song.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 8)
@@ -24,7 +25,7 @@ struct SongRow: View {
             if let downloads = library.downloads { DownloadAction(song: song, downloads: downloads) }
             Button { library.toggleFavorite(song) } label: {
                 Image(systemName: library.favoriteIDs.contains(song.id) ? "heart.fill" : "heart")
-                    .foregroundStyle(library.favoriteIDs.contains(song.id) ? Color.pink : Color.secondary)
+                    .foregroundStyle(library.favoriteIDs.contains(song.id) ? ThemePalette.accent(for: colorScheme) : Color.secondary)
             }
             .help(library.favoriteIDs.contains(song.id) ? "Remove from Favorites" : "Add to Favorites")
             .accessibilityLabel("\(library.favoriteIDs.contains(song.id) ? "Unfavorite" : "Favorite") \(song.title)")

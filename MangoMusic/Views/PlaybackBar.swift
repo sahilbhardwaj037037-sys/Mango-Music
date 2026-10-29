@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PlaybackBar: View {
     @Bindable var library: MusicLibrary
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 10) {
@@ -32,9 +33,9 @@ struct PlaybackBar: View {
                 .buttonStyle(.plain)
                 Button(action: library.cycleRepeatMode) {
                     Image(systemName: library.repeatMode.symbol)
-                        .foregroundStyle(library.repeatMode == .off ? Color.secondary : Color.pink)
+                        .foregroundStyle(library.repeatMode == .off ? Color.secondary : ThemePalette.accent(for: colorScheme))
                         .padding(6)
-                        .background(library.repeatMode == .off ? Color.clear : Color.pink.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                        .background(library.repeatMode == .off ? Color.clear : ThemePalette.selectionFill(for: colorScheme), in: RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
                 .disabled(library.isClosing)

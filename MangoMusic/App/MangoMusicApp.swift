@@ -5,6 +5,7 @@ import AppKit
 struct MangoMusicApp: App {
     @NSApplicationDelegateAdaptor(MusicApplicationDelegate.self) private var delegate
     @State private var library = Self.makeLibrary()
+    @AppStorage(AppearanceMode.storageKey) private var appearance: AppearanceMode = .system
 
     @MainActor private static func makeLibrary() -> MusicLibrary {
         let store = SQLiteLibraryStore()
@@ -14,9 +15,19 @@ struct MangoMusicApp: App {
     var body: some Scene {
         Window("Mango Music", id: "main") {
             MusicRootWindow(library: library, delegate: delegate)
+                .preferredColorScheme(appearance.colorScheme)
         }
         .defaultSize(width: 800, height: 560)
         .commands {
+            CommandMenu("Appearance") {
+                Picker("Appearance", selection: $appearance) {
+                    ForEach(AppearanceMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.inline)
+                .accessibilityLabel("Application appearance")
+            }
             CommandGroup(after: .sidebar) {
                 Button("Toggle Sidebar") { library.toggleSidebar() }
                     .keyboardShortcut("b", modifiers: .command)
@@ -33,13 +44,14 @@ private struct MusicRootWindow: View {
     let library: MusicLibrary
     let delegate: MusicApplicationDelegate
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.colorScheme) private var colorScheme
     var body: some View {
         MainWindow(library: library)
             .onAppear {
                 delegate.attach(library)
                 delegate.reopenWindow = { openWindow(id: "main") }
             }
-            .tint(.pink)
+            .tint(ThemePalette.accent(for: colorScheme))
             .frame(minWidth: 700, minHeight: 480)
     }
 }
