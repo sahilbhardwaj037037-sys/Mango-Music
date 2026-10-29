@@ -16,6 +16,20 @@ private func generatedWAV(seconds: Int = 4) -> Data {
     integer(UInt32(16000)); integer(UInt16(2)); integer(UInt16(16)); ascii("data"); integer(UInt32(samples * 2))
     bytes.append(Data(count: samples * 2)); return bytes
 }
+private func generatedAIFF(seconds: Int = 4) -> Data {
+    let samples = seconds * 8000
+    var bytes = Data()
+    func ascii(_ text: String) { bytes.append(contentsOf: text.utf8) }
+    func integer<T: FixedWidthInteger>(_ number: T) {
+        var number = number.bigEndian
+        withUnsafeBytes(of: &number) { bytes.append(contentsOf: $0) }
+    }
+    ascii("FORM"); integer(UInt32(46 + samples * 2)); ascii("AIFFCOMM")
+    integer(UInt32(18)); integer(UInt16(1)); integer(UInt32(samples)); integer(UInt16(16))
+    bytes.append(contentsOf: [0x40, 0x0b, 0xfa, 0, 0, 0, 0, 0, 0, 0]) // 8000 Hz, IEEE extended.
+    ascii("SSND"); integer(UInt32(8 + samples * 2)); integer(UInt32(0)); integer(UInt32(0))
+    bytes.append(Data(count: samples * 2)); return bytes
+}
 private final class DownloadHTTPFixture {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("MangoDownloadHTTP-\(UUID())")
     let process = Process()
@@ -23,8 +37,10 @@ private final class DownloadHTTPFixture {
     init(hls: Bool = false) async throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try generatedWAV().write(to: directory.appendingPathComponent("fixture.wav"))
+        try generatedAIFF().write(to: directory.appendingPathComponent("fixture.aiff"))
         if hls {
-            let encoder = Process(); encoder.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
+            let encoder = Process(); encoder.executableURL = PackagedIntegrationTools.fixtureEncoder
+            encoder.environment = ["PATH": "/usr/bin:/bin", "HOME": directory.path, "CFFIXED_USER_HOME": directory.path]
             encoder.arguments = ["-nostdin", "-hide_banner", "-loglevel", "error", "-i", directory.appendingPathComponent("fixture.wav").path,
                 "-c:a", "aac", "-hls_time", "1", "-hls_playlist_type", "vod", "-hls_segment_filename", directory.appendingPathComponent("segment%02d.ts").path,
                 directory.appendingPathComponent("fixture.m3u8").path]
@@ -143,7 +159,7 @@ struct DownloadIntegrationTests {
         try "#EXTM3U\n#EXTINF:4,\nhttp://127.0.0.1:9/remote.wav\n".write(to: remotePlaylist, atomically: true, encoding: .utf8)
         await #expect(throws: (any Error).self) { try await validator.validate(remotePlaylist) }
     }
-    @Test(.enabled(if: ProcessInfo.processInfo.environment["MANGO_DOWNLOAD_INTEGRATION"] == "1" && FileManager.default.isExecutableFile(atPath:"/opt/homebrew/bin/ffmpeg")))
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["MANGO_DOWNLOAD_INTEGRATION"] == "1" && FileManager.default.isExecutableFile(atPath: PackagedIntegrationTools.fixtureEncoder.path)))
     func generatedHLSWithoutFFmpegInDownloadPath() async throws {
         let fixture = try await DownloadHTTPFixture(hls: true)
         let files = ManagedDownloadFiles(root: fixture.directory.appendingPathComponent("Downloads")), stage = try await files.stage(UUID())
@@ -153,5 +169,23 @@ struct DownloadIntegrationTests {
         fixture.stopServer()
         let validated = try await MPVAudioFileValidator(executable: PackagedIntegrationTools.mpv).validate(file)
         #expect(validated.duration >= 3.8)
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["MANGO_DOWNLOAD_INTEGRATION"] == "1" && PackagedIntegrationTools.bundle != nil))
+    func packagedConversionDownloadsAIFFAsPlayableM4A() async throws {
+        let bundle = try #require(PackagedIntegrationTools.bundle)
+        let tools = try #require(PackagedIntegrationTools.conversion)
+        #expect(tools.ffmpeg.deletingLastPathComponent() == bundle.appendingPathComponent("Contents/MacOS"))
+        let fixture = try await DownloadHTTPFixture()
+        let files = ManagedDownloadFiles(root: fixture.directory.appendingPathComponent("Downloads"))
+        let stage = try await files.stage(UUID())
+        let service = YTAudioDownloadService(executable: PackagedIntegrationTools.ytDLP, conversionTools: tools)
+        let file = try await service.download(source: fixture.base.appendingPathComponent("fixture.aiff"), stage: stage,
+            existingBytes: 0, limits: DownloadLimits(timeout: 30), progress: { _ in })
+        fixture.stopServer()
+        #expect(file.pathExtension == "m4a")
+        #expect(!FileManager.default.fileExists(atPath: stage.appendingPathComponent("audio.aiff").path))
+        let audio = try await MPVAudioFileValidator(executable: PackagedIntegrationTools.mpv).validate(file)
+        #expect(audio.duration >= 3.9)
     }
 }

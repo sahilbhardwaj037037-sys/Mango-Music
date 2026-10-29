@@ -68,13 +68,15 @@ def main():
     assert (app / 'Contents/Resources/Assets.car').is_file()
     assert list((app / 'Contents/Resources').glob('*.icns'))
     native = app / 'Contents/MacOS'
-    for name in (info['CFBundleExecutable'], 'mpv', 'yt-dlp'):
+    for name in (info['CFBundleExecutable'], 'mpv', 'yt-dlp', 'ffmpeg', 'ffprobe'):
         p = native / name
         assert p.is_file() and not p.is_symlink() and p.stat().st_mode & 0o111
         check_macho(p, native)
         subprocess.run(['/usr/bin/codesign', '--verify', '--strict', str(p)], check=True)
     assert output('/usr/bin/lipo', '-archs', native / info['CFBundleExecutable']).strip() == 'arm64'
     assert output('/usr/bin/lipo', '-archs', native / 'mpv').strip() == 'arm64'
+    for name in ('ffmpeg', 'ffprobe'):
+        assert output('/usr/bin/lipo', '-archs', native / name).strip() == 'arm64'
     # The verified upstream universal yt-dlp is intentionally not lipo-thinned: preserve its signed embedded archive.
     from PyInstaller.archive.readers import CArchiveReader
     archive = CArchiveReader(str(native / 'yt-dlp'))

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Build a local ad-hoc signed Release app. No downloads or installation."""
+import argparse
 import json
 import os
 from pathlib import Path
@@ -18,18 +19,26 @@ def run(args, **kwargs):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--work-dir', type=Path, default=STAGE,
+                        help='separate output, DerivedData and release logs under project .build')
+    args = parser.parse_args()
+    work = args.work_dir.resolve()
+    if not work.is_relative_to((ROOT / '.build').resolve()):
+        raise SystemExit('Packaging work directory must stay under project .build')
+    work.mkdir(parents=True, exist_ok=True)
     verify_cache()
     assert os.uname().machine == 'arm64', 'Build on an Apple Silicon Mac'
-    app = STAGE / 'output/Mango Music.app'
+    app = work / 'output/Mango Music.app'
     if app.exists():
         raise SystemExit('Move the previous isolated output aside before rebuilding: ' + str(app))
     run([sys.executable, ROOT / 'Scripts/Packaging/build_helpers.py'])
-    derived = STAGE / 'DerivedData'
-    logs = STAGE / 'logs'
+    derived = work / 'DerivedData'
+    logs = work / 'logs'
     logs.mkdir(exist_ok=True)
     with (logs / 'xcode-release.log').open('w') as log:
         run(['/usr/bin/xcodebuild', '-project', ROOT / 'MangoMusic.xcodeproj', '-scheme', 'MangoMusic', '-configuration', 'Release', '-derivedDataPath', derived, 'ARCHS=arm64', 'ONLY_ACTIVE_ARCH=YES', 'MACOSX_DEPLOYMENT_TARGET=14.0', 'ENABLE_APP_SANDBOX=NO', 'CODE_SIGNING_ALLOWED=NO', 'build'], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
-    output = STAGE / 'output'
+    output = work / 'output'
     output.mkdir(exist_ok=True)
     app = output / 'Mango Music.app'
     if app.exists():
@@ -39,11 +48,15 @@ def main():
     native = app / 'Contents/MacOS'
     shutil.copy2(STAGE / 'prefix/bin/mpv', native / 'mpv')
     shutil.copy2(STAGE / 'downloads/yt-dlp_macos', native / 'yt-dlp')
-    for name in ('mpv', 'yt-dlp'):
+    for name in ('ffmpeg', 'ffprobe'):
+        shutil.copy2(STAGE / 'conversion-prefix/bin' / name, native / name)
+    for name in ('mpv', 'yt-dlp', 'ffmpeg', 'ffprobe'):
         (native / name).chmod(0o755)
     info_path = app / 'Contents/Info.plist'
     info = plistlib.loads(info_path.read_bytes())
     info['MangoBundledTools'] = True
+    info['CFBundleShortVersionString'] = '2.0'
+    info['CFBundleVersion'] = '200'
     info_path.write_bytes(plistlib.dumps(info))
     notices = app / 'Contents/Resources/ThirdPartyNotices'
     notices.mkdir()
@@ -71,7 +84,7 @@ def main():
     (notices / 'yt-dlp-THIRD_PARTY_LICENSES.txt').write_bytes(archive.extract('THIRD_PARTY_LICENSES.txt'))
     # These freshly built helpers need no non-system dylibs. yt-dlp's native extensions
     # are already signed inside the verified upstream archive; do not modify that payload.
-    for name in ('mpv', 'yt-dlp', info['CFBundleExecutable']):
+    for name in ('mpv', 'yt-dlp', 'ffmpeg', 'ffprobe', info['CFBundleExecutable']):
         run(['/usr/bin/codesign', '--force', '--sign', '-', '--timestamp=none', native / name])
     run(['/usr/bin/codesign', '--force', '--sign', '-', '--timestamp=none', app])
     run([sys.executable, ROOT / 'Scripts/Packaging/validate.py', app])

@@ -29,9 +29,9 @@ def main():
     parser.add_argument('--audio', action='store_true', help='use real CoreAudio at low volume; requires manual audible confirmation')
     args = parser.parse_args()
     native = args.app.resolve() / 'Contents/MacOS'
-    environment = {'PATH': str(native) + ':/usr/bin:/bin', 'HOME': str(Path.home())}
     with tempfile.TemporaryDirectory(prefix='mango-packaged-smoke-') as directory:
         root = Path(directory)
+        environment = {'PATH': str(native) + ':/usr/bin:/bin', 'HOME': str(root), 'CFFIXED_USER_HOME': str(root)}
         if args.live:
             tool = native / 'yt-dlp'
             child = subprocess.Popen([str(tool), '--ignore-config', '--no-plugin-dirs', '--no-cache-dir', '--skip-download', '--no-playlist', '--socket-timeout', '15', '--retries', '1', '--format', 'bestaudio[protocol^=m3u8]/bestaudio', '--get-url', '--', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'], env=environment, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)

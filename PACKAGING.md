@@ -1,6 +1,6 @@
-# Mango Music local packaging — Checkpoint 6
+# Mango Music local packaging — V2 / Phase 4A
 
-The package bundles the native application, a source-built minimal mpv, and verified upstream standalone yt-dlp. The tested search/audio-only HLS path is self-contained apart from macOS system libraries/frameworks and network access: no installed Homebrew, Python, FFmpeg executable, Deno or external dylibs are required at runtime. This is a local-use build, not public distribution, Developer ID signing, notarization or App Store compatibility.
+The V2 package bundles the native application, a source-built minimal mpv, verified upstream standalone yt-dlp, and separate static ffmpeg/ffprobe executables for audio conversion. Phase 4A stages version 2.0/build 200 without installation; see [PHASE4A.md](PHASE4A.md) for current evidence and [UPGRADE.md](UPGRADE.md) for the deferred upgrade/rollback plan. The tested search/audio-only HLS path is self-contained apart from macOS system libraries/frameworks and network access: no installed Homebrew, Python, FFmpeg executable, Deno or external dylibs are required at runtime. This is a local-use build, not public distribution, Developer ID signing, notarization or App Store compatibility.
 
 ## Build requirements and acquisition
 
@@ -11,7 +11,7 @@ From the existing project directory:
 ```sh
 cd ~/Developer/MangoMusic
 python3 Scripts/Packaging/prepare.py --acquire
-.build/packaging/tools/bin/python Scripts/Packaging/package.py
+.build/packaging/tools/bin/python Scripts/Packaging/package.py --work-dir .build/phase4a
 ```
 
 Only prepare.py with --acquire permits downloads. It uses HTTPS, fixed versions/commits and SHA-256 verification. Scripts/Packaging/dependencies.json records URLs, hashes and provenance. The standalone yt-dlp hash was checked against the GitHub release asset digest and upstream SHA2-256SUMS; source hashes pin the downloaded upstream release archives, and wheel hashes match PyPI metadata. No arbitrary unverified binary is executed by the normal build.
@@ -20,19 +20,19 @@ After acquisition, these commands work from the local cache without network down
 
 ```sh
 python3 Scripts/Packaging/prepare.py
-.build/packaging/tools/bin/python Scripts/Packaging/package.py
+.build/packaging/tools/bin/python Scripts/Packaging/package.py --work-dir .build/phase4a
 ```
 
-All downloads, virtual environment, build-only tools, sources, prefix, compiler output, logs, and app outputs stay under ignored `.build/packaging`. No Homebrew/Python/system installation is modified. The recipe installs hash-pinned wheels offline in its own virtual environment. For fresh reproduction, move that project-specific staging directory aside, prepare/acquire again, and rebuild. Do not move it while its app is running. A clean source extraction/build from the verified cache was tested; compiler/SDK upgrades are not claimed bit-for-bit reproducible.
+Downloads, virtual environment, build-only tools, sources, helper prefixes and helper logs stay under ignored `.build/packaging`. `--work-dir .build/phase4a` places the V2 app, Xcode DerivedData and release log under `.build/phase4a`, preserving previous outputs. The default without that option remains the historical `.build/packaging` location. Work directories must resolve under project `.build`. No Homebrew/Python/system installation is modified. The recipe installs hash-pinned wheels offline in its own virtual environment. For fresh reproduction, move that project-specific staging directory aside, prepare/acquire again, and rebuild. Do not move it while its app is running. A clean source extraction/build from the verified cache was tested; compiler/SDK upgrades are not claimed bit-for-bit reproducible.
 
-The script refuses to replace an existing `.build/packaging/output/Mango Music.app`. Quit that app, move the previous isolated output aside, then rebuild. It never writes into /Applications or automatically changes an installed copy. Rebuild the app after Swift code or dependency changes; rebuilding only in Xcode does not update the separately packaged copy.
+The script refuses to replace an existing `.build/phase4a/output/Mango Music.app`. Quit that isolated app and explicitly preserve its output under a new name, or choose a fresh work directory, then rebuild. Never move an installed app as part of this recipe. It never writes into /Applications or automatically changes an installed copy. Rebuild the app after Swift code or dependency changes; rebuilding only in Xcode does not update the separately packaged copy.
 
 ## Pinned runtime components
 
 | Component | Version | Role |
 | --- | --- | --- |
 | mpv | 0.41.0 | Persistent JSON IPC audio engine; upstream CoreAudio initialization fix c5d391adba7bd024954d0df1e0405f5749f4d4ca retained from development Homebrew recipe |
-| FFmpeg | 8.0.1 | Static audio demux/decode/filter/resample plus system SecureTransport HTTPS |
+| FFmpeg / ffprobe | 8.0.1 | Static libraries inside mpv; separate bundled audio-focused CLI tools with native AAC encoding, selected muxers and system SecureTransport HTTPS |
 | libass | 0.17.4 | Mandatory upstream mpv dependency, CoreText font provider |
 | libplacebo | 7.349.0 | Mandatory upstream mpv dependency, no GPU backend |
 | FreeType | 2.14.1 | Required font dependency |
@@ -44,7 +44,7 @@ The script refuses to replace an existing `.build/packaging/output/Mango Music.a
 
 Exact source commits, archive digests, build-only wheel versions and the CoreAudio patch before/after hashes are in the dependency manifest. No third-party binary is committed to Git.
 
-FFmpeg enables audio-focused AAC/Opus/Vorbis/MP3/FLAC/PCM decoding, HLS/MOV-MP4/MPEG-TS/Matroska/Ogg/local-audio demuxing, HTTP/HTTPS/TCP/TLS/crypto and necessary audio filtering/resampling. Video decoders, unrelated codecs, external TLS libraries, FFmpeg command-line tools, and GPL/nonfree FFmpeg options are omitted. The exact flags are reviewable in build_helpers.py. mpv disables video outputs/GPU backends, Lua/JavaScript, its own YouTube integration, optional libraries and duplicate media integration. Its required libass/libplacebo are retained rather than patching out upstream architecture. Only system dynamic dependencies remain for mpv.
+FFmpeg enables audio-focused AAC/Opus/Vorbis/MP3/FLAC/PCM decoding, HLS/MOV-MP4/MPEG-TS/Matroska/Ogg/local-audio demuxing, HTTP/HTTPS/TCP/TLS/crypto and necessary audio filtering/resampling. The minimal mpv library build omits video decoders, unrelated codecs, external TLS libraries, FFmpeg command-line tools and GPL/nonfree FFmpeg options. A separate source/configuration from the same verified archive builds ffmpeg and ffprobe with static libraries, selected audio demuxers/decoders/muxers, AAC/PCM encoding and required audio filters. This adds conditional AAC/M4A conversion and yt-dlp fixup/extraction support without rebuilding mpv around a broader codec set. Unsupported inputs still fail cleanly; this is not a general-purpose FFmpeg codec build. The exact flags are reviewable in build_helpers.py. mpv disables video outputs/GPU backends, Lua/JavaScript, its own YouTube integration, optional libraries and duplicate media integration. Its required libass/libplacebo are retained rather than patching out upstream architecture. Only system dynamic dependencies remain for mpv.
 
 The verified yt-dlp executable remains universal (arm64 and x86_64) to retain its upstream PyInstaller archive. The app and mpv are arm64 only. The embedded 103 native files are audited for arm64, deployment minimum and relative/system linkage. Standalone yt-dlp does include a Python runtime and SSL libraries **inside its payload**; self-containment does not mean Python-free. Its extraction to a private temporary directory is normal PyInstaller behavior. No external JavaScript runtime is bundled. Some YouTube clients/formats/videos may require one; only the tested HLS/search path is established.
 
@@ -55,6 +55,8 @@ Mango Music.app/Contents/
   MacOS/MangoMusic
   MacOS/mpv
   MacOS/yt-dlp
+  MacOS/ffmpeg
+  MacOS/ffprobe
   Resources/Assets.car
   Resources/AppIcon.icns
   Resources/ThirdPartyNotices/
@@ -62,7 +64,7 @@ Mango Music.app/Contents/
   _CodeSignature/
 ```
 
-Static linking eliminates a separate Frameworks payload for mpv. yt-dlp's embedded libraries extract with their verified bundle-relative layouts. A generated Info.plist marker selects Bundle.main-relative helpers without shell PATH discovery or silent global fallback. Missing/non-executable/native-header-invalid/symlink helpers fail clearly. Packaging validates complete signatures and library layouts; lightweight runtime header checks are not complete tamper detection. Production executes argument arrays, retains HLS-first resolution and persistent JSON IPC, and logs no signed stream URLs.
+Static linking eliminates a separate Frameworks payload for mpv, ffmpeg and ffprobe. yt-dlp's embedded libraries extract with their verified bundle-relative layouts. A generated Info.plist marker selects Bundle.main-relative helpers without shell PATH discovery or silent global fallback. Missing/non-executable/native-header-invalid/symlink helpers fail clearly. Packaging validates complete signatures and library layouts; lightweight runtime header checks are not complete tamper detection. Production executes argument arrays, retains HLS-first resolution and persistent JSON IPC, and logs no signed stream URLs.
 
 Debug continues using installed development tools and the current Xcode workflow. The minimal mpv has no scripting options at all, so packaged launches omit --load-scripts/--ytdl flags; external development launches retain them. Packaging does not change the queue, persistence, native controls, app lifecycle, icon, branding or main UI.
 
@@ -81,62 +83,44 @@ The standalone yt-dlp aggregate is GPLv3+ according to upstream, with embedded P
 ## Validation and limitations
 
 ```sh
-.build/packaging/tools/bin/python Scripts/Packaging/validate.py '.build/packaging/output/Mango Music.app'
-.build/packaging/tools/bin/python Scripts/Packaging/test_validation.py '.build/packaging/output/Mango Music.app'
-python3 Scripts/Packaging/smoke.py '.build/packaging/output/Mango Music.app'
+.build/packaging/tools/bin/python Scripts/Packaging/validate.py '.build/phase4a/output/Mango Music.app'
+.build/packaging/tools/bin/python Scripts/Packaging/test_validation.py '.build/phase4a/output/Mango Music.app'
+python3 Scripts/Packaging/smoke.py '.build/phase4a/output/Mango Music.app'
 # Explicit opt-in: public YouTube stream and actual low-volume CoreAudio output:
-python3 Scripts/Packaging/smoke.py '.build/packaging/output/Mango Music.app' --live --audio
-# No-Xcode Launch Services launch, isolated data home, normal quit:
-swiftc -parse-as-library Scripts/Packaging/LaunchProbe.swift -o .build/packaging/launch-probe
-.build/packaging/launch-probe "$PWD/.build/packaging/output/Mango Music.app" "$PWD/.build/packaging/launch-home"
+python3 Scripts/Packaging/smoke.py '.build/phase4a/output/Mango Music.app' --live --audio
+# No-Xcode executable launch with kernel-protected isolated data and normal quit:
+swiftc -parse-as-library Scripts/Packaging/IsolatedLaunchProbe.swift -lsqlite3 \
+  -o .build/phase4a/isolated-launch-probe
+.build/phase4a/isolated-launch-probe \
+  "$PWD/.build/phase4a/output/Mango Music.app" "$PWD/.build/phase4a/launch-home"
 ```
 
 Run the Swift/Xcode regression commands in VALIDATION.md. Tests accept MANGO_PACKAGED_APP only in test code for explicit helper injection; the shipping app accepts no environment executable override. The validator checks architecture/minimums, dependencies/rpaths including embedded yt-dlp, app/icon metadata, executable permissions, signatures, sandbox absence, unchanged upstream payload and excluded personal/build data.
 
-Launch Services and helper CoreAudio tests are automated evidence. Separately, the user has now manually confirmed the isolated standalone package on this Mac: Finder launch without Xcode, real YouTube search, audible playback, Play/Pause/Next/Previous/volume, manual queue playback, Control Center playback controls, background playback after closing the window and successful Dock reopening, Favorites/History/Queue/settings restoration after quit/relaunch, and Cmd+Q cleanly stopping playback. See VALIDATION.md for all nine reported passes and their limits. Seeking, icon appearance, automatic queue advancement, no autoplay and process/socket inspection were not separately confirmed in this follow-up. All hardware checks that were unverified in Checkpoint 5 remain unverified. macOS 14 declaration/linkage checks cannot replace running on macOS 14. Tests use isolated SQLite/settings and do not modify the user's library.
+The following Launch Services, CoreAudio and user results are historical Checkpoint 6 evidence; new V2 standalone manual checks remain pending in PHASE4A.md. Separately, the user previously manually confirmed the isolated standalone package on this Mac: Finder launch without Xcode, real YouTube search, audible playback, Play/Pause/Next/Previous/volume, manual queue playback, Control Center playback controls, background playback after closing the window and successful Dock reopening, Favorites/History/Queue/settings restoration after quit/relaunch, and Cmd+Q cleanly stopping playback. See VALIDATION.md for all nine reported passes and their limits. Seeking, icon appearance, automatic queue advancement, no autoplay and process/socket inspection were not separately confirmed in this follow-up. All hardware checks that were unverified in Checkpoint 5 remain unverified. macOS 14 declaration/linkage checks cannot replace running on macOS 14. Tests use isolated SQLite/settings and do not modify the user's library.
 
-## Safe /Applications installation plan — approval pending
+## Isolated V2 validation and deferred installation
 
-The isolated app has passed the user's nine reported manual checks. No installation has been performed. A read-only check found no matching immediate app bundle in `/Applications` or `~/Applications`, including both `Mango Music.app` and `MangoMusic.app` and bundles with identifier `com.localmusic.MangoMusic`. The verified source app and the user's existing SQLite database are present; source deep/strict signature verification passes. Recheck all destinations immediately before copying, including symlinks; these observations are not permission to install or replace anything.
+`/Applications/Mango Music.app` exists and remains V1. The historical Checkpoint 6 empty-destination installation procedure is superseded by [UPGRADE.md](UPGRADE.md). Do not copy, replace or launch V2 against the real home during Phase 4A. A future Phase 4B needs separate authorization, a complete app/data/preferences backup, and paired data restoration for rollback from schema 3 to V1.
 
-Proposed source: `~/Developer/MangoMusic/.build/packaging/output/Mango Music.app`.
-Proposed destination: `/Applications/Mango Music.app`.
-
-The following steps are a plan only. Wait for separate user approval before executing installation:
-
-1. Quit every Mango Music copy, including Xcode/debug and isolated/installed copies. Wait for normal persistence flush and playback shutdown. Verify the owned helpers have exited before backing up; do not kill unrelated media processes. Keep the source bundle and its current signature intact.
-2. With the app fully closed, create a uniquely named private backup outside the repository, for example `~/Library/Application Support/MangoMusic-Backups/<timestamp>/`. Copy the **entire** `~/Library/Application Support/MangoMusic` folder, including any SQLite WAL/SHM sidecars, into that backup. Preserve `com.localmusic.MangoMusic` preferences with a defaults export if that domain exists. Check backup success before proceeding. Do not delete, move, recreate, migrate or restore over the live database; installation only copies the app. Do not back up a live database by copying just library.sqlite3.
-3. Revalidate the isolated source with the commands below. Recheck `/Applications` for both known names, symlinks and any matching bundle identifier. If anything conflicts, stop, preserve it and request a separate replacement decision. Do not merge app bundles or accept Finder's Replace prompt. No replacement is authorized by an approval to install into an empty destination.
-4. After approval and only while the destination remains absent, use Finder to copy the **whole** verified Mango Music.app into `/Applications`, or use a guarded Terminal copy of that same bundle with ditto. Recheck absence immediately before copying and stop if a conflict appears. Do not use sudo automatically; if the directory requires authorization, explain the permission requirement and obtain approval for that action. No Homebrew/Python install or security-setting change is needed.
-5. Before launch, verify the copied bundle using the commands below, then compare source and destination regular-file hashes and symlink targets to ensure the copy is complete and unchanged. Confirm identifier `com.localmusic.MangoMusic`, bundled-tool marker, arm64 support and expected version. Keep the original isolated source available. If copying or validation fails, do not launch or overwrite another app; preserve the existing database and report the partial copy for review.
-6. Open `/Applications/Mango Music.app` explicitly from Finder or the Terminal command below, with all other copies closed. Verify the running application's bundle path is actually under `/Applications`, and update any Dock shortcut that still targets the isolated output. Check the visible icon and Dock reopening from the installed location.
-7. Verify real search/audible playback, Play/Pause/Next/Previous/volume, manual queue, Control Center and background playback. Confirm the **existing** Favorites/History/Queue/settings remain, quit/relaunch to check restoration and no autoplay separately, then verify Cmd+Q stops sound, owned helper processes exit and IPC sockets are removed. Earlier isolated-app passes do not establish installed-copy verification.
-8. Keep the backup and isolated source until installed-copy verification succeeds. For a future upgrade, back up again and obtain explicit approval before replacing an installed copy; never delete Application Support to upgrade or uninstall an app bundle.
-
-Read-only pre-copy validation, safe to run separately from installation:
+Use the kernel-protected launcher for current isolated app checks (quit other Mango Music instances first):
 
 ```sh
-cd ~/Developer/MangoMusic
-codesign --verify --deep --strict '.build/packaging/output/Mango Music.app'
-.build/packaging/tools/bin/python Scripts/Packaging/validate.py '.build/packaging/output/Mango Music.app'
+swiftc -parse-as-library Scripts/Packaging/IsolatedLaunchProbe.swift -lsqlite3 \
+  -o .build/phase4a/isolated-launch-probe
+.build/phase4a/isolated-launch-probe \
+  "$PWD/.build/phase4a/output/Mango Music.app" "$PWD/.build/phase4a/manual-home" --manual
 ```
 
-After the separately approved copy, validate and launch the exact installed location:
+Keep that terminal running and quit the test app with Cmd+Q afterward. The launcher requires project `.build` paths, sets both HOME and CFFIXED_USER_HOME, restricts PATH, denies writes to `/Applications` and the real home outside the isolated home, and denies reads of the real MangoMusic library/preferences file. Cocoa/system services remain macOS-managed; before/after protected-file hashes provide additional observed evidence. This temporary validation profile is separate from the shipping app's unsandboxed Release configuration.
+
+Without `--manual`, the launcher checks two actual packaged-executable launches and normal quits, exact process/bundle paths and a schema-v3 database in the isolated home. It does not synthesize playback, Control Center commands, window reopening or audible human observations. The earlier `LaunchProbe.swift` Launch Services probe is historical; its old package results are not new V2 Finder/Dock evidence.
 
 ```sh
-cd ~/Developer/MangoMusic
-codesign --verify --deep --strict '/Applications/Mango Music.app'
-.build/packaging/tools/bin/python Scripts/Packaging/validate.py '/Applications/Mango Music.app'
-open '/Applications/Mango Music.app'
+python3 Scripts/Packaging/conversion_smoke.py '.build/phase4a/output/Mango Music.app'
 ```
 
-The installed package needs no development tools at runtime; the optional full validator above uses the project-local build environment and pinned reference cache. Preserve the bundle identifier, preferences domain and `~/Library/Application Support/MangoMusic/library.sqlite3`. Both isolated and installed unsandboxed copies intentionally use the same user data; never run them concurrently against that library. Installation into a different directory does not require a database migration. The backup may contain private library data and must stay outside Git and public uploads.
-
-Until approval, launch the already verified isolated source with:
-
-```sh
-open "$HOME/Developer/MangoMusic/.build/packaging/output/Mango Music.app"
-```
+This generated-audio check invokes yt-dlp with `--ffmpeg-location` and system-only PATH, verifies both exact conversion executable paths, inspects AAC output with bundled ffprobe and decodes with bundled mpv after stopping localhost. Production performs conversion only for otherwise unsupported audio containers; the smoke test's forced extraction is an additional dependency check, not a change to production download policy.
 
 ## Troubleshooting
 
@@ -150,4 +134,4 @@ open "$HOME/Developer/MangoMusic/.build/packaging/output/Mango Music.app"
 
 ## Comparison with the original audit
 
-Installed Homebrew mpv required at least 49 Mach-O files across 42 formula families, 61.3 MiB, with one additional unresolved rpath and minimum macOS 26.0. The minimal mpv is approximately 7.7 MiB and uses only system dynamic libraries, targeting macOS 14. The complete app is approximately 47.37 MiB including the larger standalone yt-dlp runtime and notices. This is not a size comparison against a complete original app: the 61.3 MiB baseline excluded standalone yt-dlp/resources and was a lower bound. Build-only source/wheel caches are excluded from the app.
+Installed Homebrew mpv required at least 49 Mach-O files across 42 formula families, 61.3 MiB, with one additional unresolved rpath and minimum macOS 26.0. The minimal mpv is approximately 7.7 MiB and uses only system dynamic libraries, targeting macOS 14. The historical Checkpoint 6 app was approximately 47.37 MiB. The V2 Phase 4A app is approximately 54.14 MiB including separate conversion tools, standalone yt-dlp and notices. This is not a size comparison against a complete original app: the 61.3 MiB baseline excluded standalone yt-dlp/resources and was a lower bound. Build-only source/wheel caches are excluded from the app.

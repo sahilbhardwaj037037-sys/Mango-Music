@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 
 import pkgconf
-from prepare import ROOT, MANIFEST, verify_cache
+from prepare import ROOT, MANIFEST, verify_cache, extract
 
 
 def main():
@@ -84,6 +84,32 @@ def main():
     meson('mpv', ['-Dlibmpv=false', '-Dcplayer=true', '-Dbuild-date=false',
                   '-Dgl=disabled', '-Dlua=disabled', '-Dcoreaudio=enabled',
                   '-Dswift-build=disabled', '-Dmacos-media-player=disabled'])
+    # Separate source/configuration: do not change the minimal libraries linked into mpv.
+    # Both CLI tools use static FFmpeg libraries and macOS system libraries only.
+    conversion = root / 'src/ffmpeg-conversion'
+    extract(root / 'downloads' / MANIFEST['ffmpeg']['file'], conversion)
+    conversion_prefix = root / 'conversion-prefix'
+    if not (conversion / 'config.h').exists():
+        run([
+            conversion / 'configure', '--prefix=' + str(conversion_prefix), '--arch=arm64',
+            '--cc=/usr/bin/clang', '--disable-autodetect', '--disable-shared',
+            '--enable-static', '--enable-pic', '--disable-doc', '--disable-debug',
+            '--disable-everything', '--enable-ffmpeg', '--enable-ffprobe', '--disable-ffplay',
+            '--enable-network', '--enable-securetransport',
+            '--enable-protocol=file,http,https,tcp,tls,crypto,data',
+            '--enable-demuxer=hls,mov,matroska,ogg,mp3,aac,wav,flac,mpegts,aiff',
+            '--enable-decoder=aac,aac_fixed,opus,vorbis,mp3,mp3float,flac,pcm_s16le,pcm_s24le,pcm_f32le,pcm_s16be,pcm_s24be',
+            '--enable-parser=aac,aac_latm,opus,vorbis,mpegaudio,flac',
+            '--enable-encoder=aac,pcm_s16le',
+            '--enable-muxer=ipod,mov,mp4,adts,mpegts,ogg,opus,mp3,flac,wav,hls',
+            '--enable-bsf=aac_adtstoasc,extract_extradata',
+            '--enable-filter=abuffer,abuffersink,aformat,anull,aresample',
+            '--enable-swresample',
+            '--extra-cflags=-arch arm64 -mmacosx-version-min=14.0',
+            '--extra-ldflags=-arch arm64 -mmacosx-version-min=14.0',
+        ], conversion, 'ffmpeg-conversion-setup')
+    run(['/usr/bin/make', '-j8'], conversion, 'ffmpeg-conversion-compile')
+    run(['/usr/bin/make', 'install'], conversion, 'ffmpeg-conversion-install')
     print('Helper build complete', flush=True)
 
 

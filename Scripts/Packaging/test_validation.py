@@ -32,6 +32,14 @@ class BundleValidationTests(unittest.TestCase):
         (self.app / 'Contents/MacOS/mpv').chmod(0o644)
         self.expect_rejected()
 
+    def test_missing_conversion_tool(self):
+        (self.app / 'Contents/MacOS/ffprobe').unlink()
+        self.expect_rejected()
+
+    def test_nonexecutable_conversion_tool(self):
+        (self.app / 'Contents/MacOS/ffmpeg').chmod(0o644)
+        self.expect_rejected()
+
     def test_newer_deployment_target(self):
         path = self.app / 'Contents/Info.plist'
         info = plistlib.loads(path.read_bytes())

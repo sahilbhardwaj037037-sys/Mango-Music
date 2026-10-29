@@ -1,6 +1,20 @@
+# Mango Music V2 — Phase 4A standalone Release validation
+
+29 October 2026, Asia/Kolkata. Started on `main` synchronized with live `origin/main` at `15eb38487dac03f8faae146ec2bbef1f4f8594ec`. Full Phase 4A evidence, reproduction commands, failures/retries and remaining manual checks are in [PHASE4A.md](PHASE4A.md); packaging instructions are in [PACKAGING.md](PACKAGING.md), and the deferred V1→V2 upgrade/rollback plan is in [UPGRADE.md](UPGRADE.md).
+
+- Final standalone output: `.build/phase4a/output/Mango Music.app`, version **2.0/build 200**, **54.14 MiB** (56,772,637 logical file bytes). **Xcode Release BUILD SUCCEEDED**; private ad-hoc signed arm64/macOS-14-targeted package, no installation.
+- Bundled **yt-dlp 2026.10.21**, **mpv 0.41.0**, and newly built separate **ffmpeg/ffprobe 8.0.1**. Bundle/signature/linkage/runtime validation passes, including 103 embedded yt-dlp native files. Packaged conversion support is now verified for generated audio through both yt-dlp and the production unsupported-container branch; this supersedes Phase 3B's earlier missing-conversion-executables limitation for this new artifact only. General codec/service limitations remain.
+- Final artifact complete local suite: **158 discovered declarations in 20 suites, passing runner result**; three live-only declarations gated and exercised separately. Six package-validator rejection fixtures pass. Swift build/project plist/shared-scheme XML pass. A transient initial lease-handoff failure passed focused and subsequent complete runs; no root cause or production fix is claimed.
+- Actual packaged executable launches/quits twice under a kernel-protected isolated HOME with a v3 database. Generated HTTP/HLS downloads, AIFF→AAC/M4A conversion, persistent bundled-mpv playback/control, collection/offline/restart/migration fixtures pass. Current-engine generated M4A/Opus/FLAC/WAV playback passes with kernel network denial, including owned PID/socket cleanup. These are automated/fixture results, not GUI or audible human observations.
+- Separate bounded live streaming: three public-video cases, real YouTube search/manual queue and one natural YouTube Mix transition pass with staged tools and null audio. The first public-video batch timed out; no single combined all-live/full-suite pass is claimed. **Actual YouTube recording downloads remain unverified.**
+- Phase 3B's six user-reported Debug manual passes are preserved below; new V2 standalone manual tests remain pending. Actual macOS 14 runtime, hardware controls, sleep/output changes, signing/notarization/public redistribution and unsupported formats retain documented limits.
+- Installed `/Applications/Mango Music.app`, real Application Support/preferences and the pre-existing shared scheme were preserved; protected-file before/after inventories match. Scheme Git blob remains `9ca951e610568feed117ad46ec37d2097105d1e0` and is excluded from the commit. No global dependencies were installed, no real-data migration or Phase 4B installation occurred, and no Android development began.
+
+---
+
 # Mango Music — Phase 3B Offline Downloads validation
 
-Validation date: 29 October 2026, Asia/Kolkata. This section supersedes earlier scope/schema statements for the current implementation; earlier phase evidence below remains historical.
+Validation date: 29 October 2026, Asia/Kolkata. This section records Phase 3B implementation evidence; the Phase 4A summary above supersedes packaging/conversion status for the newly staged V2 artifact. Earlier phase evidence below remains historical.
 
 ## Safety and implementation
 
