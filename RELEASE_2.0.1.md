@@ -1,5 +1,7 @@
 # Mango Music 2.0.1 / Build 201 — isolated visual and appearance retest
 
+Subsequent user finding: the original Repeat One/All window shaking is **confirmed fixed in Build 201**. Remaining routine saving-text flicker is addressed separately in [Build 202](RELEASE_BUILD_202.md), awaiting manual visual verification. This document preserves Build 201's release-time evidence and artifact; appearance/menu behavior is unchanged by Build 202.
+
 29 October 2026, Asia/Kolkata. Successor test build to the preserved Phase 4A **2.0/build 200** package. No installation, Phase 4B, Android development or automatic app GUI launch is part of this work. The installed V1, real user data/preferences and the pre-existing shared scheme remain protected. Build 200's 30 manual passes, zero failures and one media-key skip are historical evidence, not new Build 201 results.
 
 ## Changes and verification boundary

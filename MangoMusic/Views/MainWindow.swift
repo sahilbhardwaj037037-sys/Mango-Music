@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine
 import AppKit
+import Observation
 
 struct MainWindow: View {
     @Bindable var library: MusicLibrary
@@ -10,7 +11,8 @@ struct MainWindow: View {
             // This region always occupies the same height, including while idle.
             // Ordinary asynchronous saves must not move the library at every EOF.
             SaveStatusView(librarySaving: library.hasUnsavedChanges && library.persistenceError == nil && !library.isRestoring,
-                           downloadsSaving: library.downloads.map { $0.hasUnsavedChanges && $0.persistenceError == nil } == true)
+                           downloadsSaving: library.downloads.map { $0.hasUnsavedChanges && $0.persistenceError == nil } == true,
+                           suppressed: library.isRestoring || library.persistenceError != nil || library.downloads?.persistenceError != nil)
             if library.isRestoring || library.persistenceError != nil {
                 HStack {
                     Text(library.persistenceError ?? "Restoring library…")
@@ -86,14 +88,27 @@ struct MainWindow: View {
 struct SaveStatusView: View {
     let librarySaving: Bool
     let downloadsSaving: Bool
+    let suppressed: Bool
+    @State private var presentation: SaveStatusPresentation
+
+    init(librarySaving: Bool, downloadsSaving: Bool, suppressed: Bool = false,
+         presentation: SaveStatusPresentation = SaveStatusPresentation()) {
+        self.librarySaving = librarySaving
+        self.downloadsSaving = downloadsSaving
+        self.suppressed = suppressed
+        _presentation = State(initialValue: presentation)
+    }
+
+    private struct Activity: Hashable {
+        let saving: Bool
+        let suppressed: Bool
+    }
+    private var activity: Activity {
+        Activity(saving: librarySaving || downloadsSaving, suppressed: suppressed)
+    }
 
     var message: String? {
-        switch (librarySaving, downloadsSaving) {
-        case (true, true): "Saving library and Downloads…"
-        case (true, false): "Saving library…"
-        case (false, true): "Saving Downloads…"
-        case (false, false): nil
-        }
+        !suppressed && presentation.isVisible ? "Saving changes…" : nil
     }
 
     var body: some View {
@@ -108,5 +123,41 @@ struct SaveStatusView: View {
         .padding(.horizontal, 10)
         .frame(height: 22)
         .allowsHitTesting(false)
+        .task(id: activity) {
+            await presentation.update(saving: activity.saving, suppressed: activity.suppressed)
+        }
+        .onDisappear { presentation.reset() }
+    }
+}
+
+/// Presentation only: never delays, cancels or otherwise controls a persistence write.
+@MainActor @Observable
+final class SaveStatusPresentation {
+    private(set) var isVisible = false
+    private var generation = 0
+    private let sleep: @Sendable (Duration) async throws -> Void
+
+    init(sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+        self.sleep = sleep
+    }
+
+    func reset() {
+        generation += 1
+        isVisible = false
+    }
+
+    func update(saving: Bool, suppressed: Bool = false) async {
+        guard !Task.isCancelled else { return }
+        generation += 1
+        let request = generation
+        if suppressed { isVisible = false; return }
+        guard saving != isVisible else { return }
+        do {
+            // Quick saves never appear. After a slow save appears, bridge brief
+            // idle gaps so repeated writes don't flash the label on and off.
+            try await sleep(saving ? .milliseconds(800) : .seconds(1))
+        } catch { return }
+        guard request == generation, !Task.isCancelled else { return }
+        isVisible = saving
     }
 }

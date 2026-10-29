@@ -1,4 +1,16 @@
-# Mango Music V2 — 2.0.1 / Build 201 implementation and isolated validation
+# Mango Music V2 — 2.0.1 / Build 202 save-label suppression
+
+The user confirms the original Repeat One/All window shaking is fixed in Build 201. The remaining routine save-label flicker is **FIX IMPLEMENTED / AWAITING MANUAL VISUAL VERIFICATION** in Build 202. `SaveStatusView` now delays ordinary display until 800 ms of continuous saving, uses stable “Saving changes…” text, and bridges brief idle gaps with a one-second hide grace. Errors/restoration and disappearance reset it immediately; cancelled/stale tasks cannot publish late state. The reserved 22-point layout, persistence operations, error/Retry, playback and native menu-bar Appearance implementation remain unchanged. No in-app appearance selector was added.
+
+New standalone output: `.build/v2-2.0.1-202/output/Mango Music.app`, **2.0.1/build 202**, **54.25 MiB** (56,887,823 logical bytes). Fresh Xcode Release **BUILD SUCCEEDED**, bundle/runtime validation passed with the same pinned helpers. Focused regressions passed **40 tests / 4 suites**; final full local suite passed **170 discovered declarations / 22 suites**, three live-only declarations gated for separate runs. Swift build/project plist/scheme XML passed. Controlled timer, cancellation and offscreen geometry tests are not a GUI visual pass.
+
+Six package rejection fixtures, bundled mpv controls/cleanup and exact bundled yt-dlp/ffmpeg/ffprobe generated-audio conversion passed. Three public-video streaming cases and live search/manual queue/Mix checks passed separately with null output. These results are not GUI observations or actual recording-download evidence; no combined all-live/full-suite batch is claimed.
+
+Build 201 and earlier artifacts are preserved; production data/preferences and the installed V1 app are untouched. Shared scheme blob `9ca951e610568feed117ad46ec37d2097105d1e0` is preserved and excluded. The new protected launcher is compiled only; no GUI launch, installation, Phase 4B or Android development was performed. See [RELEASE_BUILD_202.md](RELEASE_BUILD_202.md) for exact command, complete evidence and remaining manual checks.
+
+---
+
+# Mango Music V2 — 2.0.1 / Build 201 implementation and isolated validation (historical)
 
 29 October 2026, Asia/Kolkata. The VIS-01 fix and appearance implementation are separate commits, `0970844` and `81193f2`. New standalone output: `.build/v2-2.0.1-201/output/Mango Music.app`, **2.0.1/build 201**, **54.23 MiB** (56,863,471 logical bytes). Fresh Xcode Release **BUILD SUCCEEDED**; bundle validation passes with yt-dlp 2026.10.21, mpv 0.41.0 and ffmpeg/ffprobe 8.0.1, including 103 embedded runtime files. Version/build now comes from the app plist for both Xcode and packaging. Build 200 is preserved unchanged.
 

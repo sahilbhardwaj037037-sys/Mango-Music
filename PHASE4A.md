@@ -1,6 +1,6 @@
 # Mango Music V2 — Phase 4A standalone release validation
 
-This report preserves the **2.0/build 200** baseline and its user-reported manual results. The subsequent VIS-01/appearance implementation is packaged separately as **2.0.1/build 201**; see [RELEASE_2.0.1.md](RELEASE_2.0.1.md). Build 200 remains unchanged. The successor's VIS-01 status is **FIX IMPLEMENTED / AWAITING MANUAL VERIFICATION**; appearance is implemented but has no new GUI pass yet.
+This report preserves the **2.0/build 200** baseline and its user-reported manual results. The VIS-01/appearance implementation is preserved separately as **2.0.1/build 201**; see [RELEASE_2.0.1.md](RELEASE_2.0.1.md). The user subsequently confirmed the original window shaking is fixed in Build 201. The current [Build 202](RELEASE_BUILD_202.md) changes only routine save-label presentation and awaits manual visual verification; Appearance is unchanged. All earlier artifacts remain preserved.
 
 29 October 2026, Asia/Kolkata. Started on `main` at finalized Phase 3B commit `15eb38487dac03f8faae146ec2bbef1f4f8594ec`; fresh fetch/live remote verification matched `origin/main`. The existing shared Xcode scheme remains uncommitted and byte-for-byte preserved (Git blob `9ca951e610568feed117ad46ec37d2097105d1e0`).
 
