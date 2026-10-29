@@ -1,5 +1,7 @@
 # Mango Music V2 — Phase 4A standalone release validation
 
+This report preserves the **2.0/build 200** baseline and its user-reported manual results. The subsequent VIS-01/appearance implementation is packaged separately as **2.0.1/build 201**; see [RELEASE_2.0.1.md](RELEASE_2.0.1.md). Build 200 remains unchanged. The successor's VIS-01 status is **FIX IMPLEMENTED / AWAITING MANUAL VERIFICATION**; appearance is implemented but has no new GUI pass yet.
+
 29 October 2026, Asia/Kolkata. Started on `main` at finalized Phase 3B commit `15eb38487dac03f8faae146ec2bbef1f4f8594ec`; fresh fetch/live remote verification matched `origin/main`. The existing shared Xcode scheme remains uncommitted and byte-for-byte preserved (Git blob `9ca951e610568feed117ad46ec37d2097105d1e0`).
 
 ## Artifact and scope
@@ -86,15 +88,21 @@ Compile `OfflinePlaybackProbe.swift` with the current `MangoMusic/{Models,Servic
 
 Ignored evidence: `.build/phase4a/package-final.log`, `logs/xcode-release.log`, `final-artifact-tests.log`, `validator-tests.log`, `smoke-local.log`, `conversion-smoke-final.log`, `final-launch.log`, `offline-results.json`, `live-playback-final.log`, `live-mix-queue.log`, `v1-reject.log`, and private `artifact.json`/protected-file inventories. Earlier failed/focused batch logs remain alongside them. Helper build logs remain under `.build/packaging/logs`. No global tools were installed or updated.
 
-## Limits and remaining manual checks before installation
+## Subsequent user-reported packaged manual results
 
-- No new human V2 standalone Finder/Dock launch, audible output, Control Center delivery, background-window behavior or full GUI Downloads report is claimed. The automated executable launch is distinct from Finder/Launch Services validation.
+The user reports **30 PASS, 0 FAIL, 1 SKIP** for isolated version **2.0/build 200**, with functional playback, downloads, Offline Mode, persistence and macOS integration passing. Keyboard/headphone media keys were skipped and remain unverified. These are human-reported observations, separate from automated/fixture results above; no individual 31-item transcript or specific recording-download provenance was supplied.
+
+The user also reports brief UI shaking/flicker/glitching around EOF restart/transition in Repeat One and Repeat All, disappearing after playback resumes; repeat behavior itself remains correct. This is the **Build 200 VIS-01 defect**, despite the functional checklist's zero reported failures. A successor fix is now implemented in Build 201 and awaits manual verification; Build 200 has not been modified or visually retested. No claim of a visually defect-free app is made. See [GUI_FINDINGS.md](GUI_FINDINGS.md) for the historical investigation and current implementation status. The initial findings follow-up was documentation-only; subsequent implementation/package evidence is separate in RELEASE_2.0.1.md.
+
+## Limits and remaining checks before installation
+
+- The subsequent user report establishes the functional manual areas above. It does not supply an itemized transcript establishing every device/runtime scenario or a separate Finder/Launch Services test. The automated executable launch remains distinct evidence. VIS-01 remains unresolved.
 - No actual YouTube recording download has been verified. Service changes, formats, expiry, throttling, restrictions and missing external JavaScript runtime can still break specific sources. No login/cookies/DRM bypass or unbounded retry was added.
 - Audio conversion is available for the selected compiled inputs and AAC/M4A output; unsupported codecs/containers still fail. This does not claim complete FFmpeg format support, video support or full-duration corruption scanning.
 - Actual macOS 14 runtime, keyboard/headphone controls, system seeking, sleep/wake and output-device changes remain manual/platform-dependent. Current SDK warnings for the macOS-14-compatible spawn-chdir API and ordinary AppIntents metadata extraction remain documented, without build failure.
 - Ad-hoc signing, no notarization/Developer ID, unsandboxed shipping package, incomplete public redistribution/source-obligation audit; private local use only. No DMG/PKG/GitHub Release produced.
 
-For manual testing, use the `--manual` isolated launcher command in `PACKAGING.md`; do not double-click the staged app against the real home. Complete these groups and record observations separately:
+For future regression testing, use the `--manual` isolated launcher command in `PACKAGING.md`; do not double-click the staged app against the real home. The original groups below are retained as a regression checklist, not a claim that the user's report left every functional group pending. Explicitly retest repeat-transition visuals after any fix and record device-specific checks separately:
 
 1. Launch without Xcode under the protected launcher, check window/icon, no startup playback/download and normal Cmd+Q; test Dock reopening and Finder/Launch Services in an appropriately isolated account/environment if needed.
 2. Authorized search and audible playback, play/pause/seek/volume, Next/Previous, Queue priority, Favorites Play All/Shuffle, Repeat and opted-in Autoplay.

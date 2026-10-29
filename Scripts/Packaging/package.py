@@ -55,8 +55,8 @@ def main():
     info_path = app / 'Contents/Info.plist'
     info = plistlib.loads(info_path.read_bytes())
     info['MangoBundledTools'] = True
-    info['CFBundleShortVersionString'] = '2.0'
-    info['CFBundleVersion'] = '200'
+    # Version/build come from the app's checked-in Info.plist for both Xcode and
+    # standalone builds. Do not silently relabel new code as the Build 200 baseline.
     info_path.write_bytes(plistlib.dumps(info))
     notices = app / 'Contents/Resources/ThirdPartyNotices'
     notices.mkdir()
