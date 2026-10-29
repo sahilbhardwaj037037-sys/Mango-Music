@@ -52,9 +52,28 @@ Admitted extensions are M4A/MP4, Opus/Ogg/WebM, MP3/AAC, FLAC, WAV and TS; only 
 
 Standalone conversion requires verified native ffmpeg and ffprobe executables in the bundle. The existing staged app does not provide these; direct playable downloads need no conversion and unsupported containers fail cleanly. Debug can discover existing development helpers. No new conversion tools were installed or bundled. Budgets are 512 MiB/attempt, 5 GiB actual managed bytes, 256 MiB free reserve, 15-minute attempt deadline, 10-second decoder probe, maximum six-hour known duration; disk checks are sampled, not filesystem quotas. Interrupted downloads restart fresh only on explicit Retry. Completed storage shown in the UI excludes incomplete/failed leftovers, but admission counts disk bytes. Full hash checks can delay startup/local resolution for large files. Offline missing favorites/queue entries stop with error/Retry/Next rather than automatically skipping.
 
-Schema v3 is an additive forward migration. Older v2 builds refuse a v3 database safely; do not point the installed older app at the isolated Debug database. User-performed GUI/audible/download/Control Center checks for Phase 3B are pending; earlier manual phase passes do not cover new Downloads behavior.
+Schema v3 is an additive forward migration. Older v2 builds refuse a v3 database safely; do not point the installed older app at the isolated Debug database. The six user-reported Phase 3B manual passes below are separate from automated evidence and earlier phase results; they do not remove the download, conversion or runtime limitations above.
+
+## User-performed Phase 3B manual results
+
+On 29 October 2026, Asia/Kolkata, the user confirmed that all six manual test groups below passed for implementation commit `fd7d45f869868c1e44493b0eeb1063b1d4fdc45b`. These are user-reported manual observations, separate from the automated tests, generated-download fixtures and null-output integrations above. Codex did not perform or infer these GUI results.
+
+| Manual test group | User-reported result |
+| --- | --- |
+| Download button, progress and completion | PASS |
+| Cancel, Retry and Duplicate prevention | PASS |
+| Offline playback, Play/Pause and Seek | PASS |
+| Queue, Favorites, Shuffle and Repeat compatibility | PASS |
+| Delete/Clear confirmation and collection preservation | PASS |
+| Persistence, Control Center, background playback and quit | PASS |
+
+This report completes these six manual groups only. It does not independently verify actual YouTube downloads or packaged FFmpeg/ffprobe support; both remain unverified as documented above. VoiceOver, physical media controls, sleep/output changes, actual macOS 14 runtime compatibility and process-level orphan cleanup are not established by this report.
+
+This finalization changes only `VALIDATION.md`. No tests or builds were rerun. `/Applications/Mango Music.app`, real user data and the pre-existing shared Xcode scheme modification were left untouched; the scheme remains excluded from the commit. No packaging, installation or Android development was performed.
 
 ## Manual Phase 3B checklist — isolated Xcode Debug only
+
+The six user-reported passes above complete the reported Phase 3B manual groups. This checklist is retained for future regression testing; additional items outside that report remain unverified.
 
 1. Quit the installed app normally. Open the project in Xcode, select MangoMusic / My Mac / Debug. Retain the existing scheme's isolated HOME and CFFIXED_USER_HOME at `/Users/sahilbhardwaj/Developer/MangoMusic/.build/phase1-manual-home`. Run the Debug product with Cmd+R. Never change these to the real home. Confirm no playback/download starts on launch.
 2. Search for content you have permission to download. Use the down-arrow circle beside a song. Confirm queued/progress/cancel and Downloaded states. Repeat the action: no duplicate. Check Downloads sidebar title/channel, file size, completed total and empty state. A real source failure should show a useful error and explicit Retry; it must not appear completed.
